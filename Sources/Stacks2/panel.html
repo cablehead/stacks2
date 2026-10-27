@@ -1,0 +1,1593 @@
+<!doctype html>
+<html data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Stacks</title>
+<style>
+  :root, [data-theme="dark"] {
+    --text: #c5c6c7;
+    --text-reverse: #d0d0d0;
+    --bg: #232323;
+    --highlight: #4f5c6c;
+    --panel: #1f1f1fef;
+    --selected: #4a4a4a;
+    --button: #4a4a4a;
+    --hover: #333333;
+    --border: #3e3e3e;
+    --shadow: rgba(102, 102, 102, 0.4);
+    --broadcast: linear-gradient(45deg, #3e3e68, #3e3e68 30%, #5e5b30 70%, #5e5b30);
+    --broadcast-on: linear-gradient(45deg, #0057b8, #0057b8 30%, #ffd700 70%, #ffd700);
+  }
+  [data-theme="light"] {
+    --text: #1d1f21;
+    --text-reverse: #1a1c1e;
+    --bg: #f5f5f5;
+    --highlight: #c0d4ee;
+    --panel: #ffffffef;
+    --selected: #d1d1d1;
+    --button: #d1d1d1;
+    --hover: #e2e2e2;
+    --border: #ccc;
+    --shadow: rgba(0, 0, 0, 0.2);
+    --broadcast: linear-gradient(45deg, #b0cff7, #b0cff7 30%, #fbf9d6 70%, #fbf9d6);
+    --broadcast-on: linear-gradient(45deg, #00a5ff, #00a5ff 30%, #fff375 70%, #fff375);
+  }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: ui-monospace, monospace;
+    letter-spacing: -0.02ch;
+    line-height: 1.5;
+    padding: 10px;
+    box-sizing: border-box;
+  }
+  ::-webkit-scrollbar { display: none; }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { background: transparent; border: 0; padding: 0; cursor: pointer; }
+  input, textarea { background: transparent; border: 0; outline: none; width: 100%; }
+  ::placeholder, ::-webkit-input-placeholder { color: inherit; opacity: 0.54; }
+  #shell {
+    color: var(--text);
+    background: var(--panel);
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  .top {
+    -webkit-app-region: drag;
+    display: flex;
+    align-items: center;
+    gap: 0.5ch;
+    height: 5ch;
+    padding: 1ch 1ch 0.25ch 2ch;
+    border-bottom: 1px solid var(--border);
+    box-sizing: border-box;
+    flex: none;
+  }
+  .top .no-drag, .top input, .top button { -webkit-app-region: no-drag; }
+  .filter-grow { flex: 1; min-width: 0; }
+  .vdiv { width: 1px; height: 1.5em; background: var(--border); flex: none; }
+  .hoverable { border-radius: 4px; padding: 4px; display: inline-flex; align-items: center; gap: 0.75ch; white-space: nowrap; }
+  .top .hoverable, .top button { font-size: 0.9rem; }
+  .hoverable:hover { background: var(--hover); }
+  .stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 1ch;
+    overflow: hidden;
+  }
+  .cols { flex: 1; display: flex; min-height: 0; gap: 0.5ch; overflow: hidden; }
+  .col {
+    flex: 1;
+    max-width: 14ch;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+    border-right: 1px solid var(--border);
+    min-height: 0;
+  }
+  .col.wide { max-width: 20ch; }
+  .previews {
+    flex: 3;
+    min-width: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .terserow {
+    display: flex;
+    width: 100%;
+    gap: 0.5ch;
+    overflow: hidden;
+    padding: 0.5ch 0.75ch;
+    border-radius: 6px;
+    cursor: pointer;
+    box-sizing: border-box;
+  }
+  .terserow:hover, .terserow.hover { background: var(--hover); }
+  .terserow.selected { background: var(--selected); }
+  .terserow.highlight { background: var(--highlight); color: var(--text-reverse); }
+  .terserow .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .terserow .icon { width: 2ch; flex: none; }
+  .preview { padding: 0.25lh 0; }
+  .preview.not-active { opacity: 0.3; filter: grayscale(30%); }
+  .preview.not-active:hover { opacity: 0.6; filter: grayscale(60%); background: var(--bg); }
+  .preview.active { box-shadow: 0 0 6px var(--shadow); background: var(--bg); }
+  .preview .body { padding: 0 1ch; white-space: pre-wrap; }
+  .preview img { max-width: 100%; display: block; }
+  .markdown { padding: 0 2ch; }
+  .markdown code, code { background: var(--hover); border-radius: 2px; padding: 0 0.5ch; }
+  .markdown blockquote { margin: 0; padding-left: 2ch; border-left: 4px solid var(--border); }
+  .markdown pre { white-space: pre-wrap; }
+  a { color: var(--text); text-underline-offset: 3px; }
+  .meta {
+    position: absolute;
+    width: 47ch;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    font-size: 0.9rem;
+    padding: 0.25lh 0 0.25lh 1ch;
+    border-radius: 0.5em 0 0 0;
+    background: var(--panel);
+    box-shadow: 0 0 6px var(--shadow);
+  }
+  .meta-row { display: flex; width: 100%; }
+  .meta-row .k { width: 16ch; flex: none; }
+  .meta-row .v { overflow-wrap: anywhere; }
+  .footer {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 5ch;
+    padding: 1ch 1ch 1ch 2ch;
+    box-sizing: border-box;
+    background: var(--bg);
+    box-shadow: 0 0 4px var(--shadow);
+    font-size: 0.9rem;
+    gap: 0.5ch;
+  }
+  .cluster { display: flex; align-items: center; gap: 0.5ch; min-width: 0; }
+  .keys { display: inline-flex; align-items: center; gap: 0.25ch; }
+  .key {
+    display: inline-block;
+    text-align: center;
+    background: var(--button);
+    border-radius: 5px;
+    padding: 0 1ch 0.2ch;
+  }
+  .key svg { position: relative; top: 1px; }
+  .overlay {
+    position: absolute;
+    z-index: 100;
+    background: var(--panel);
+    box-shadow: 0 0 6px var(--shadow);
+    font-size: 0.9rem;
+  }
+  .menu-bottom {
+    width: 40ch;
+    max-height: 10.5lh;
+    bottom: 0;
+    right: 4ch;
+    border-radius: 0.5rem 0.5rem 0 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+  .menu-top {
+    top: 0;
+    border-radius: 0 0 0.5rem 0.5rem;
+    padding: 1ch;
+  }
+  .menu-search { padding: 1ch; border-bottom: 1px solid var(--border); flex: none; }
+  .menu-rows { overflow: auto; padding: 1ch; flex: 1; min-height: 0; }
+  .rename-back {
+    position: absolute;
+    inset: 0;
+    z-index: 1000;
+    padding: 1ch;
+    background: transparent;
+  }
+  .rename-card {
+    height: calc(100% - 2ch);
+    background: var(--panel);
+    box-shadow: 0 0 6px var(--shadow);
+    border-radius: 0.5rem;
+    padding: 2ch;
+    box-sizing: border-box;
+  }
+  .rename-card textarea { height: 100%; resize: none; }
+  .icon-btn {
+    width: 1.5em;
+    height: 1.5em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    flex: none;
+  }
+  .icon-btn svg { width: 100%; height: 100%; vertical-align: middle; }
+  .broadcast { border-radius: 4px; padding: 4px; }
+  .broadcast.on { background-image: var(--broadcast-on); }
+  .settings-pop {
+    width: 40ch;
+    right: 4ch;
+    bottom: 0;
+    border-radius: 0.5rem 0.5rem 0 0;
+    padding: 1ch 2ch;
+    display: flex;
+    flex-direction: column;
+    gap: 1ch;
+  }
+  .mod {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.3ch 0.8ch;
+  }
+  .mod.on { background-image: var(--broadcast-on); }
+  .empty { opacity: 0.7; padding: 0.5ch; }
+  svg { width: 1em; height: 1em; vertical-align: -0.15em; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<div id="shell"></div>
+<script>
+const CODE = ["C","C++","CSS","Diff","Erlang","Go","Graphviz","HTML","Haskell","Java","JSON","JavaScript","Lisp","Lua","Makefile","MATLAB","Nushell","OCaml","Objective-C","PHP","Perl","Python","R","Regular Expression","reStructuredText","Ruby","Rust","Shell","SQL","XML","YAML"];
+const CONTENT_TYPES = ["Plain Text", "Markdown", "Nushell", ...CODE.filter(t => t !== "Nushell")];
+const FILTER_TYPES = ["All", "Links", "Images", "Markdown", "Source Code"];
+const DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+const state = {
+  theme: "dark",
+  filter: "",
+  contentType: "All",
+  focus: "clip",
+  stackId: "",
+  clipId: "",
+  lastClip: {},
+  mode: "main",
+  picker: 0,
+  pickerFilter: "",
+  rename: "",
+  undo: false,
+  error: "",
+  shortcut: { shift: true, ctrl: true, alt: false, command: false },
+  stacks: [],
+  clips: [],
+};
+
+let model = { stacks: [], deleted: [] };
+let seen = new Set();
+const bodies = {};
+const pending = {};
+let callSeq = 0;
+let ready = false;
+window.__stacksReady = false;
+window.__xsDone = (id, payload) => {
+  const fn = pending[id];
+  if (!fn) return;
+  delete pending[id];
+  fn(payload);
+};
+
+const shell = document.getElementById("shell");
+let focusRestore = null;
+
+function scruTime(id) {
+  let n = 0n;
+  const text = String(id || "").toLowerCase();
+  for (const ch of text) {
+    const v = DIGITS.indexOf(ch);
+    if (v < 0) return 0;
+    n = n * 36n + BigInt(v);
+  }
+  return Number(n >> 80n);
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function native(msg) {
+  const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.stacks;
+  if (handler) handler.postMessage(msg);
+}
+function dn(date = new Date()) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short", year: "numeric", month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: true, timeZoneName: "short",
+  }).format(date);
+}
+function stamp(ms) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short", year: "numeric", month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: true,
+  }).format(new Date(ms));
+}
+function svg(name) {
+  const body = {
+  "stack": "<path d=\"M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3\"/>",
+  "sorted": "<path d=\"M7.5 7.5h-.75A2.25 2.25 0 004.5 9.75v7.5a2.25 2.25 0 002.25 2.25h7.5a2.25 2.25 0 002.25-2.25v-7.5a2.25 2.25 0 00-2.25-2.25h-.75m-6 3.75l3 3m0 0l3-3m-3 3V1.5m6 9h.75a2.25 2.25 0 012.25 2.25v7.5a2.25 2.25 0 01-2.25 2.25h-7.5a2.25 2.25 0 01-2.25-2.25v-.75\"/>",
+  "lock": "<path d=\"M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z\"/>",
+  "unlock": "<path d=\"M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z\"/>",
+  "bolt": "<path d=\"M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z\"/>",
+  "boltSlash": "<path d=\"M11.412 15.655L9.75 21.75l3.745-4.012M9.257 13.5H3.75l2.659-2.849m2.048-2.194L14.25 2.25 12 10.5h8.25l-4.707 5.043M8.457 8.457L3 3m5.457 5.457l7.086 7.086m0 0L21 21\"/>",
+  "sun": "<path d=\"M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z\"/>",
+  "moon": "<path d=\"M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z\"/>",
+  "cog": "<path d=\"M4.5 12a7.5 7.5 0 0015 0m-15 0a7.5 7.5 0 1115 0m-15 0H3m16.5 0H21m-1.5 0H12m-8.457 3.077l1.41-.513m14.095-5.13l1.41-.513M5.106 17.785l1.15-.964m11.49-9.642l1.149-.964M7.501 19.795l.75-1.3m7.5-12.99l.75-1.3m-6.063 16.658l.26-1.477m2.605-14.772l.26-1.477m0 17.726l-.26-1.477M10.698 4.614l-.26-1.477M16.5 19.794l-.75-1.299M7.5 4.205L12 12m6.894 5.785l-1.149-.964M6.256 7.178l-1.15-.964m15.352 8.864l-1.41-.513M4.954 9.435l-1.41-.514M12.002 12l-3.75 6.495\"/>",
+  "return": "<polyline points=\"9 10 4 15 9 20\"/><path d=\"M20 4v7a4 4 0 0 1-4 4H4\"/>",
+  "command": "<path d=\"M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z\"/>",
+  "shift": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 2 16 16\"><path fill=\"currentColor\" stroke=\"none\" d=\"M7.27 2.047a1 1 0 0 1 1.46 0l6.345 6.77c.6.638.146 1.683-.73 1.683H11.5v3a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-3H1.654C.78 10.5.326 9.455.924 8.816L7.27 2.047zM14.346 9.5 8 2.731 1.654 9.5H4.5a1 1 0 0 1 1 1v3h5v-3a1 1 0 0 1 1-1z\"/></svg>",
+  "clip": "<g fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\"><rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/></g>",
+  "link": "<g fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\"><path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/></g>",
+  "image": "<g fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\"><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\" ry=\"2\"/><circle cx=\"9\" cy=\"9\" r=\"2\"/><path d=\"m21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21\"/></g>",
+  "doc": "<g fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\"><path d=\"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z\"/><path d=\"M14 2v5a1 1 0 0 0 1 1h5M10 9H8m8 4H8m8 4H8\"/></g>",
+  "code": "<path fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"m16 18l6-6l-6-6M8 6l-6 6l6 6\"/>",
+  "copy": "<g fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\"><rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/></g>",
+  "external": "<path fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M15 3h6v6m-11 5L21 3m-3 10v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6\"/>"
+}[name] || "";
+  if (body.startsWith("<svg")) return body;
+  const box = name === "command" ? "0 1 24 24" : "0 0 24 24";
+  return `<svg viewBox="${box}">${body}</svg>`;
+}
+function keyGlyph(part) {
+  if (part === "⌘") return svg("command");
+  if (part === "⏎") return svg("return");
+  if (part === "⇧") return svg("shift");
+  return esc(part);
+}
+function keys(parts) {
+  return `<span class="keys">${parts.map((part) => `<span class="key">${keyGlyph(part)}</span>`).join("")}</span>`;
+}
+function clone(value) { return JSON.parse(JSON.stringify(value)); }
+function xsCall(cmd) {
+  const id = "q" + (++callSeq);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      delete pending[id];
+      reject(new Error("xs timed out"));
+    }, 20000);
+    pending[id] = (payload) => {
+      clearTimeout(timer);
+      if (payload && payload.error) reject(new Error(payload.error));
+      else resolve(payload);
+    };
+    native({ id, ...cmd });
+  });
+}
+function append(topic, meta, body) {
+  return xsCall({ cmd: "append", topic, meta, body: body ?? "" });
+}
+function remember(frame, body) {
+  if (frame && frame.hash) bodies[frame.hash] = body ?? "";
+}
+
+function stackAdd(frame) {
+  const meta = frame.meta || {};
+  model.stacks.push({
+    id: frame.id,
+    name: meta.name ?? null,
+    sort: meta.sort || "auto",
+    layout: meta.layout || "flow",
+    locked: !!meta.locked,
+    cross: !!meta.cross,
+    clips: [],
+    lastTouched: frame.id,
+  });
+}
+function stackUpdate(frame) {
+  const meta = frame.meta || {};
+  const stack = model.stacks.find((s) => s.id === meta.id);
+  if (!stack) return;
+  const patch = { ...meta };
+  delete patch.id;
+  delete patch.touch;
+  Object.assign(stack, patch);
+  if (meta.name != null || meta.touch) stack.lastTouched = frame.id;
+}
+function stackDelete(frame) {
+  const id = frame.meta && frame.meta.id;
+  const victim = model.stacks.find((s) => s.id === id);
+  if (!victim) return;
+  model.stacks = model.stacks.filter((s) => s.id !== id);
+  model.deleted.unshift({ frame_id: frame.id, kind: "stack", snapshot: { stack: clone(victim) } });
+}
+function clipAdd(frame) {
+  const meta = frame.meta || {};
+  const stack = model.stacks.find((s) => s.id === meta.stack_id);
+  if (!stack) return;
+  stack.clips.push({
+    id: frame.id,
+    kind: meta.kind || "content",
+    hash: frame.hash || null,
+    mime_type: meta.mime_type || "text/plain",
+    content_type: meta.content_type || "Text",
+    position: meta.position ?? null,
+    lastTouched: frame.id,
+    touched: [frame.id],
+  });
+  stack.lastTouched = frame.id;
+}
+function clipUpdate(frame) {
+  const id = frame.meta && frame.meta.id;
+  if (!id) return;
+  for (const stack of model.stacks) {
+    const clip = stack.clips.find((c) => c.id === id);
+    if (!clip) continue;
+    clip.hash = frame.hash || null;
+    clip.lastTouched = frame.id;
+    clip.touched = (clip.touched || []).concat(frame.id);
+    stack.lastTouched = frame.id;
+    return;
+  }
+}
+function clipPatch(frame) {
+  const meta = frame.meta || {};
+  let owner = null;
+  let clip = null;
+  for (const stack of model.stacks) {
+    const found = stack.clips.find((c) => c.id === meta.id);
+    if (found) { owner = stack; clip = found; break; }
+  }
+  if (!owner || !clip) return;
+  const targetId = meta.stack_id || owner.id;
+  const fields = { ...meta };
+  delete fields.id;
+  delete fields.stack_id;
+  delete fields.touch;
+  Object.assign(clip, fields);
+  if (meta.touch) {
+    clip.lastTouched = frame.id;
+    clip.touched = (clip.touched || []).concat(frame.id);
+  }
+  if (targetId !== owner.id) {
+    owner.clips = owner.clips.filter((c) => c.id !== clip.id);
+    const target = model.stacks.find((s) => s.id === targetId);
+    if (target) target.clips.push(clip);
+    if (meta.touch) {
+      owner.lastTouched = frame.id;
+      if (target) target.lastTouched = frame.id;
+    }
+  } else if (meta.touch) {
+    owner.lastTouched = frame.id;
+  }
+}
+function clipDelete(frame) {
+  const id = frame.meta && frame.meta.id;
+  let owner = null;
+  let victim = null;
+  for (const stack of model.stacks) {
+    const found = stack.clips.find((c) => c.id === id);
+    if (found) { owner = stack; victim = found; break; }
+  }
+  if (!owner || !victim) return;
+  owner.clips = owner.clips.filter((c) => c.id !== id);
+  owner.lastTouched = frame.id;
+  model.deleted.unshift({
+    frame_id: frame.id,
+    kind: "clip",
+    snapshot: { clip: clone(victim), stack_id: owner.id },
+  });
+}
+function clipRestore(frame) {
+  const target = frame.meta && frame.meta.target;
+  const entry = model.deleted.find((d) => d.frame_id === target && d.kind === "clip");
+  if (!entry) return;
+  const stack = model.stacks.find((s) => s.id === entry.snapshot.stack_id);
+  if (!stack) return;
+  stack.clips.push(clone(entry.snapshot.clip));
+  model.deleted = model.deleted.filter((d) => d.frame_id !== target);
+}
+function stackRestore(frame) {
+  const target = frame.meta && frame.meta.target;
+  const entry = model.deleted.find((d) => d.frame_id === target && d.kind === "stack");
+  if (!entry) return;
+  model.stacks.push(clone(entry.snapshot.stack));
+  model.deleted = model.deleted.filter((d) => d.frame_id !== target);
+}
+function applyFrame(frame) {
+  if (frame && frame.id) seen.add(frame.id);
+  switch (frame.topic) {
+    case "stack.add": stackAdd(frame); break;
+    case "stack.update": stackUpdate(frame); break;
+    case "stack.delete": stackDelete(frame); break;
+    case "clip.add": clipAdd(frame); break;
+    case "clip.update": clipUpdate(frame); break;
+    case "clip.patch": clipPatch(frame); break;
+    case "clip.delete": clipDelete(frame); break;
+    case "clip.restore": clipRestore(frame); break;
+    case "stack.restore": stackRestore(frame); break;
+    default: break;
+  }
+}
+function apply(frame) {
+  applyFrame(frame);
+  syncFlat();
+}
+function syncFlat() {
+  const stacks = model.stacks.slice().sort((a, b) => a.lastTouched < b.lastTouched ? 1 : a.lastTouched > b.lastTouched ? -1 : 0);
+  state.stacks = stacks.map((s) => ({
+    id: s.id,
+    name: s.name || s.id,
+    locked: !!s.locked,
+    ordered: s.sort === "manual",
+    cross: !!s.cross,
+  }));
+  const clips = [];
+  for (const stack of model.stacks) {
+    for (const clip of stack.clips) {
+      clips.push({
+        id: clip.id,
+        stackId: stack.id,
+        type: clip.content_type || "Text",
+        body: clip.hash ? (bodies[clip.hash] ?? "") : "",
+        touched: (clip.touched || [clip.lastTouched]).map(scruTime),
+        last: scruTime(clip.lastTouched),
+        hash: clip.hash,
+        position: clip.position ?? null,
+        mime: clip.mime_type || "text/plain",
+      });
+    }
+  }
+  state.clips = clips;
+  state.undo = model.deleted.length > 0;
+}
+function allHashes() {
+  const found = new Set();
+  const take = (clip) => { if (clip && clip.hash) found.add(clip.hash); };
+  for (const stack of model.stacks) for (const clip of stack.clips) take(clip);
+  for (const entry of model.deleted) {
+    if (entry.kind === "clip") take(entry.snapshot.clip);
+    if (entry.kind === "stack") for (const clip of entry.snapshot.stack.clips || []) take(clip);
+  }
+  return [...found];
+}
+function casBody(res) {
+  if (res && typeof res.b64 === "string" && res.b64) return "data:image/png;base64," + res.b64;
+  return (res && res.text) || "";
+}
+async function ensureBody(hash) {
+  if (!hash || Object.prototype.hasOwnProperty.call(bodies, hash)) return;
+  const res = await xsCall({ cmd: "cas", hash });
+  bodies[hash] = casBody(res);
+}
+async function loadBodies() {
+  const missing = allHashes().filter((hash) => !Object.prototype.hasOwnProperty.call(bodies, hash));
+  await Promise.all(missing.map((hash) => ensureBody(hash)));
+}
+async function catchUp() {
+  const frames = await xsCall({ cmd: "log" });
+  let last = "";
+  for (const frame of frames) {
+    if (!last || frame.id > last) last = frame.id;
+    if (!seen.has(frame.id)) applyFrame(frame);
+  }
+  return last;
+}
+async function putStack(meta) {
+  const frame = await append("stack.add", meta, "");
+  apply(frame);
+  return frame.id;
+}
+async function putClip(stackId, type, body, position) {
+  const meta = {
+    stack_id: stackId,
+    kind: "content",
+    mime_type: type === "Image" ? "image/svg+xml" : "text/plain",
+    content_type: type,
+  };
+  if (position != null) meta.position = position;
+  const frame = await append("clip.add", meta, body);
+  remember(frame, body);
+  apply(frame);
+  return frame.id;
+}
+async function seed() {
+  const yak = await putStack({ name: "Yak", sort: "auto", layout: "flow" });
+  await putClip(yak, "Text", "A yak is a new stack made from the clip you were in.");
+  const research = await putStack({ name: "Research", sort: "auto", layout: "flow", locked: true });
+  await putClip(research, "Link", "https://data-star.dev");
+  await putClip(research, "Markdown", "# fjall\n\nAn LSM engine. Possible home for the stack store.");
+  const notes = await putStack({ name: "Notes", sort: "manual", layout: "flow" });
+  await putClip(notes, "Text", "A window that stays open for the task you are on.", 65536);
+  await putClip(notes, "Text", "Editing in the panel is easy to lose.", 131072);
+  const fri = await putStack({ name: "Fri, May 03 2024, 09:12 AM", sort: "auto", layout: "flow" });
+  await putClip(fri, "Image", "");
+  await putClip(fri, "Rust", "fn main() {\n    println!(\"stacks\");\n}");
+  const sat = await putStack({ name: "Sat, May 04 2024, 02:35 PM", sort: "auto", layout: "flow" });
+  await putClip(sat, "Text", "An LSM storage engine is a possible home for the stack store. https://github.com/fjall-rs/fjall");
+  await putClip(sat, "Link", "https://github.com/cablehead/stacks");
+  await putClip(sat, "Markdown", "Ship the panel\n\n- filter on top\n- narrow columns\n- dim the other clips\n\n`Return` copies.");
+}
+
+function stackById(id) { return state.stacks.find((s) => s.id === id); }
+function clipById(id) { return state.clips.find((c) => c.id === id); }
+function clipsOf(stackId) {
+  const stack = stackById(stackId);
+  const clips = state.clips.filter((c) => c.stackId === stackId);
+  if (stack && stack.ordered) clips.sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || (a.id < b.id ? -1 : 1));
+  else clips.sort((a, b) => b.last - a.last || (a.id < b.id ? -1 : 1));
+  return clips;
+}
+function terse(clip) {
+  if (clip.type === "Image") return "Image";
+  const line = clip.body.split("\n").map((l) => l.trim()).find((l) => l) || "Empty";
+  return line.length > 80 ? line.slice(0, 78) + "…" : line;
+}
+function typeOk(clip) {
+  switch (state.contentType) {
+    case "All": return true;
+    case "Links": return clip.type === "Link";
+    case "Images": return clip.type === "Image";
+    case "Markdown": return clip.type === "Markdown";
+    case "Source Code": return CODE.includes(clip.type);
+    default: return true;
+  }
+}
+function textOk(clip, stack) {
+  const q = state.filter.trim().toLowerCase();
+  if (!q) return true;
+  if (stack.name.toLowerCase().includes(q)) return true;
+  return (terse(clip) + " " + clip.body).toLowerCase().includes(q);
+}
+function visibleClips(stack) {
+  return clipsOf(stack.id).filter((clip) => typeOk(clip) && textOk(clip, stack));
+}
+function visibleStacks() {
+  const q = state.filter.trim().toLowerCase();
+  return state.stacks.filter((stack) => {
+    const clips = visibleClips(stack);
+    if (clips.length) return true;
+    return q && stack.name.toLowerCase().includes(q) && state.contentType === "All" && clipsOf(stack.id).length === 0;
+  });
+}
+function currentStack() { return stackById(state.stackId) || visibleStacks()[0]; }
+function currentClip() {
+  const stack = currentStack();
+  if (!stack) return null;
+  return visibleClips(stack).find((c) => c.id === state.clipId) || visibleClips(stack)[0] || null;
+}
+function coerce() {
+  const stacks = visibleStacks();
+  if (!stacks.length) return;
+  if (!stacks.some((s) => s.id === state.stackId)) state.stackId = stacks[0].id;
+  const clips = visibleClips(stackById(state.stackId));
+  if (!clips.length) return;
+  if (!clips.some((c) => c.id === state.clipId)) {
+    state.clipId = state.lastClip[state.stackId] && clips.some((c) => c.id === state.lastClip[state.stackId])
+      ? state.lastClip[state.stackId]
+      : clips[0].id;
+  }
+  state.lastClip[state.stackId] = state.clipId;
+}
+function selectStack(id) {
+  state.stackId = id;
+  state.focus = "stack";
+  const clips = visibleClips(stackById(id));
+  const remembered = state.lastClip[id];
+  state.clipId = clips.some((c) => c.id === remembered) ? remembered : (clips[0] ? clips[0].id : "");
+  if (state.clipId) state.lastClip[id] = state.clipId;
+}
+function selectClip(id) {
+  const clip = clipById(id);
+  if (!clip) return;
+  state.stackId = clip.stackId;
+  state.clipId = id;
+  state.focus = "clip";
+  state.lastClip[clip.stackId] = id;
+}
+function neighbor(list, id, delta) {
+  const index = list.findIndex((item) => item.id === id);
+  const next = index + delta;
+  if (index < 0 || next < 0 || next >= list.length) return null;
+  return list[next];
+}
+function dirty() { return state.filter !== "" || state.contentType !== "All"; }
+
+function iconFor(type) {
+  if (type === "Image") return "image";
+  if (type === "Link") return "link";
+  if (type === "Text") return "clip";
+  if (type === "Markdown") return "doc";
+  return "code";
+}
+function renderMarkdown(text) {
+  const html = esc(text)
+    .replace(/^### (.*)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.*)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.*)$/gm, "<h1>$1</h1>")
+    .replace(/^\- (.*)$/gm, "<li>$1</li>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+    .replace(/\n\n/g, "<br><br>")
+    .replace(/\n/g, "<br>");
+  return `<div class="markdown">${html}</div>`;
+}
+function renderBody(clip) {
+  if (clip.type === "Image") {
+    if (clip.body && clip.body.startsWith("data:")) return `<img alt="Image" src="${clip.body}">`;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='360' height='140'><rect width='100%' height='100%' fill='%23222'/><circle cx='70' cy='60' r='24' fill='%23c5c6c7'/><path d='M0 120 L80 70 L140 110 L220 50 L360 130 V140 H0Z' fill='%234a4a4a'/></svg>`;
+    return `<img alt="Image" src="data:image/svg+xml,${svg}">`;
+  }
+  if (clip.type === "Markdown") return renderMarkdown(clip.body);
+  if (clip.type === "Link") return `<div class="body"><a href="${esc(clip.body)}">${esc(clip.body)}</a></div>`;
+  if (clip.type === "Text") return `<div class="body">${esc(clip.body)}</div>`;
+  return `<div class="body"><code>${esc(clip.type)}</code>\n${esc(clip.body)}</div>`;
+}
+function metaRows() {
+  const stack = currentStack();
+  if (!stack) return "";
+  const focusedClip = state.focus === "clip" ? currentClip() : null;
+  if (!focusedClip) {
+    return metaRow("Stack", esc(stack.id));
+  }
+  const words = focusedClip.body.trim() ? focusedClip.body.trim().split(/\s+/).length : 0;
+  const chars = focusedClip.body.length;
+  let rows = metaRow(esc(focusedClip.type), `${esc(focusedClip.id)} ${svg("copy")}`, `data-act="note-id" data-id="${focusedClip.id}"`);
+  if (focusedClip.type !== "Image" && focusedClip.type !== "Link") {
+    rows += metaRow("Info", `${words} w . ${chars} c`);
+  }
+  if (focusedClip.type === "Link") {
+    rows += metaRow("Url", `${esc(focusedClip.body)} ${svg("external")}`, `data-act="open-link" data-id="${focusedClip.id}"`);
+  }
+  if (focusedClip.touched.length === 1) rows += metaRow("Touched", stamp(focusedClip.last));
+  else {
+    rows += metaRow("Times Touched", String(focusedClip.touched.length));
+    rows += metaRow("Last Touched", stamp(focusedClip.last));
+    rows += metaRow("First Touched", stamp(focusedClip.touched[0]));
+  }
+  return rows;
+}
+function metaRow(k, v, attrs = "") {
+  return `<div class="meta-row" ${attrs}><div class="k">${k}</div><div class="v">${v}</div></div>`;
+}
+
+function actions() {
+  const clip = currentClip();
+  const onClip = state.focus === "clip" && !!clip;
+  const list = [
+    { name: "Open link in browser", keys: ["⌘", "O"], show: onClip && clip.type === "Link", run: () => openLink(clip) },
+    { name: "Set clip content type", keys: ["⇧", "⌘", "U"], show: onClip, run: () => openMode("contentType") },
+    { name: "Yak shave", keys: ["⌘", "Y"], show: !!clip, run: () => yak(false) },
+    { name: "Yak on here and up", keys: ["⇧", "⌘", "Y"], show: !!clip, run: () => yak(true) },
+    { name: "Stash clip", keys: ["⌘", "S"], show: onClip, run: () => openMode("stash") },
+    { name: "Delete clip", keys: ["⌘", "⌫"], show: !!clip, run: () => deleteClip(clip) },
+    { name: "Rename stack", keys: ["⌥", "⌘", "⏎"], show: !!currentStack(), run: () => startRename() },
+    { name: "Delete stack", keys: ["⌥", "⌘", "⌫"], show: !!currentStack(), run: () => deleteStack(currentStack()) },
+    { name: "Reset window", keys: [], show: true, run: () => resetWindow() },
+  ];
+  return list.filter((action) => action.show && (!state.pickerFilter || action.name.toLowerCase().includes(state.pickerFilter.toLowerCase())));
+}
+function pickerItems() {
+  if (state.mode === "actions") return actions();
+  if (state.mode === "new") {
+    return [
+      { name: "Stack & Clip", keys: ["⇧", "⌥", "⌘", "N"] },
+      { name: "Stack", keys: ["⌥", "⌘", "N"] },
+      { name: "Clip", keys: ["⇧", "⌘", "N"] },
+    ];
+  }
+  if (state.mode === "filterType") return FILTER_TYPES.map((name) => ({ name, keys: [] }));
+  if (state.mode === "contentType") {
+    const q = state.pickerFilter.toLowerCase();
+    return CONTENT_TYPES.filter((name) => !q || name.toLowerCase().includes(q)).map((name) => ({ name, keys: [] }));
+  }
+  if (state.mode === "stash") {
+    const q = state.pickerFilter.toLowerCase();
+    return state.stacks
+      .filter((stack) => stack.id !== state.stackId && (!q || stack.name.toLowerCase().includes(q)))
+      .map((stack) => ({ name: stack.name, id: stack.id, keys: [] }));
+  }
+  return [];
+}
+function modeName() {
+  switch (state.mode) {
+    case "actions": return "Actions";
+    case "new": return "New ...";
+    case "filterType": return "Filter by content type";
+    case "contentType": return "Set content type";
+    case "settings": return "Settings";
+    case "stash": return "Stash clip to stack ...";
+    case "rename": return "Rename stack";
+    default: return "";
+  }
+}
+function footerIcon(name) {
+  return `<span class="icon-btn">${svg(name)}</span>`;
+}
+function footerLeft() {
+  if (state.error) return `<div class="empty">${esc(state.error)}</div>`;
+  if (state.mode !== "main") return `<div>${esc(modeName())}</div>`;
+  const stack = currentStack();
+  if (!stack) return "<div></div>";
+  return `<div class="cluster">
+    <span class="hoverable" data-act="lock">${footerIcon(stack.locked ? "lock" : "unlock")}</span>
+    <span class="vdiv"></span>
+    <span class="hoverable" data-act="sort">${footerIcon(stack.ordered ? "stack" : "sorted")}</span>
+    <span class="vdiv"></span>
+    <span>${esc(stack.name)}</span>
+  </div>`;
+}
+function hotkeys() {
+  const item = (label, act, combo) => `<span class="hoverable" data-act="${act}">${esc(label)} ${keys(combo)}</span><span class="vdiv"></span>`;
+  if (state.mode === "main") {
+    let html = item("Copy clip", "copy", ["⏎"]) + item("Actions", "mode-actions", ["⌘", "K"]);
+    if (dirty()) html += item("Clear filter", "clear-filter", ["ESC"]);
+    return html;
+  }
+  if (state.mode === "actions" || state.mode === "new" || state.mode === "filterType" || state.mode === "contentType") {
+    const select = state.mode === "actions" ? "Trigger" : "Select";
+    return item(select, "accept", ["⏎"]) + item("Back", "back", ["ESC"]);
+  }
+  if (state.mode === "stash") {
+    const select = pickerItems().length ? item("Select", "accept", ["⏎"]) : "";
+    return select + item("Create new", "stash-new", ["⌘", "⏎"]) + item("Back", "back", ["ESC"]);
+  }
+  if (state.mode === "rename") return item("Capture", "rename-save", ["⌘", "⏎"]) + item("Discard", "back", ["ESC"]);
+  if (state.mode === "settings") return item("Back", "back", ["ESC"]);
+  return "";
+}
+function overlay() {
+  if (state.mode === "rename") {
+    return `<div class="rename-back"><div class="rename-card"><textarea id="rename-input" spellcheck="false">${esc(state.rename)}</textarea></div></div>`;
+  }
+  if (state.mode === "settings") {
+    const mod = (name, on) => `<button class="mod ${on ? "on" : ""}" data-act="shortcut" data-id="${name}">${esc(name)}</button>`;
+    return `<div class="overlay settings-pop">
+      <div>Activation Shortcut</div>
+      <div class="cluster">${mod("shift", state.shortcut.shift)} ${mod("ctrl", state.shortcut.ctrl)} ${mod("alt", state.shortcut.alt)} ${mod("command", state.shortcut.command)} <span>Space</span></div>
+    </div>`;
+  }
+  if (state.mode === "new" || state.mode === "filterType") {
+    return `<div class="overlay menu-top" id="top-menu">${rows(pickerItems())}</div>`;
+  }
+  if (state.mode === "actions" || state.mode === "stash" || state.mode === "contentType") {
+    const placeholder = "Search...";
+    const id = state.mode === "actions" ? "action-search" : state.mode === "stash" ? "stash-search" : "type-search";
+    return `<div class="overlay menu-bottom">
+      <div class="menu-search"><input id="${id}" spellcheck="false" placeholder="${placeholder}" value="${esc(state.pickerFilter)}"></div>
+      <div class="menu-rows">${rows(pickerItems())}</div>
+    </div>`;
+  }
+  return "";
+}
+function rows(items) {
+  if (!items.length) return `<div class="empty">no matches</div>`;
+  const index = ((state.picker % items.length) + items.length) % items.length;
+  return items.map((item, i) => `
+    <div class="terserow ${i === index ? "hover" : ""}" data-act="pick" data-id="${i}" style="justify-content: space-between">
+      <div>${esc(item.name)}</div>
+      <div>${item.keys && item.keys.length ? keys(item.keys) : ""}</div>
+    </div>`).join("");
+}
+function render() {
+  const active = document.activeElement;
+  if (active && active.id) focusRestore = { id: active.id, start: active.selectionStart, end: active.selectionEnd };
+  const savedScroll = captureScroll();
+  coerce();
+  document.documentElement.dataset.theme = state.theme;
+  const stacks = visibleStacks();
+  const stack = currentStack();
+  const clips = stack ? visibleClips(stack) : [];
+  const clip = currentClip();
+  const stackWide = state.focus === "stack";
+  shell.innerHTML = `
+    <div class="top">
+      <div>&gt;</div>
+      <div class="filter-grow no-drag"><input id="filter-input" spellcheck="false" placeholder="Type to filter..." value="${esc(state.filter)}"></div>
+      <span class="vdiv"></span>
+      <button class="hoverable no-drag" id="filter-content-type" data-act="mode-filter">${state.contentType === "All" ? "Filter by type" : esc(state.contentType)} ${keys(["⌘", "U"])}</button>
+      <span class="vdiv"></span>
+      <button class="hoverable no-drag" id="trigger-new" data-act="mode-new">New ${keys(["⌘", "N"])}</button>
+      ${state.undo ? `<span class="vdiv"></span><button class="hoverable no-drag" data-act="undo">Undo delete ${keys(["⌘", "Z"])}</button>` : ""}
+    </div>
+    <div class="stage">
+      ${stacks.length ? `<div class="cols">
+        <div class="col ${stackWide ? "wide" : ""}" id="col-stacks">
+          ${stacks.map((item) => row(item.name, "", item.id === stack?.id, stackWide && item.id === stack?.id, "select-stack", item.id)).join("")}
+          <div style="height: calc(100% - 2.5em)"></div>
+        </div>
+        <div class="col ${stackWide ? "" : "wide"}" id="col-clips">
+          ${clips.length ? clips.map((item) => row(terse(item), iconFor(item.type), item.id === clip?.id, !stackWide && item.id === clip?.id, "select-clip", item.id)).join("") : `<div class="empty">no items</div>`}
+          <div style="height: calc(100% - 2.5em)"></div>
+        </div>
+        <div class="previews" id="col-preview">
+          ${clips.map((item) => `<div class="preview ${item.id === clip?.id ? "active" : "not-active"}" data-act="select-clip" data-id="${item.id}">${renderBody(item)}</div>`).join("")}
+          <div style="min-height: calc(100% - 2.5em)"></div>
+        </div>
+      </div>` : `<div class="empty">no matches</div>`}
+      ${clip || stack ? `<div class="meta">${metaRows()}</div>` : ""}
+      ${overlay()}
+    </div>
+    <footer class="footer">
+      ${footerLeft()}
+      <div class="cluster">
+        ${hotkeys()}
+        <span class="hoverable" data-act="theme">${footerIcon(state.theme === "light" ? "moon" : "sun")}</span>
+        <span class="vdiv"></span>
+        <span class="hoverable" data-act="mode-settings">${footerIcon("cog")}</span>
+      </div>
+    </footer>`;
+  placeMenus();
+  restoreFocus();
+  scrollIntoPlace(savedScroll);
+  document.querySelector(".menu-rows .hover")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function row(name, icon, selected, highlight, act, id) {
+  const klass = highlight ? "highlight" : selected ? "selected" : "";
+  return `<div class="terserow ${klass}" data-act="${act}" data-id="${id}">${icon ? `<span class="icon">${svg(icon)}</span>` : ""}<span class="name">${esc(name)}</span></div>`;
+}
+function placeMenus() {
+  const menu = document.getElementById("top-menu");
+  if (!menu) return;
+  const anchor = document.getElementById(state.mode === "new" ? "trigger-new" : "filter-content-type");
+  const stage = shell.querySelector(".stage");
+  if (!anchor || !stage) return;
+  const gap = stage.getBoundingClientRect().right - anchor.getBoundingClientRect().right;
+  menu.style.right = Math.max(0, gap) + "px";
+}
+function restoreFocus() {
+  let target = null;
+  if (state.mode === "actions") target = document.getElementById("action-search");
+  else if (state.mode === "stash") target = document.getElementById("stash-search");
+  else if (state.mode === "contentType") target = document.getElementById("type-search");
+  else if (state.mode === "rename") target = document.getElementById("rename-input");
+  else if (state.mode === "main") target = document.getElementById("filter-input");
+  if (!target) return;
+  target.focus();
+  if (focusRestore && focusRestore.id === target.id && target.setSelectionRange && focusRestore.start != null) {
+    const end = Math.min(focusRestore.end ?? focusRestore.start, target.value.length);
+    const start = Math.min(focusRestore.start, target.value.length);
+    target.setSelectionRange(start, end);
+  }
+}
+let scrolled = "";
+let scrollJump = false;
+const scrollers = ["#col-stacks", "#col-clips", "#col-preview"];
+function captureScroll() {
+  const saved = {};
+  for (const sel of scrollers) {
+    const col = document.querySelector(sel);
+    if (col) saved[sel] = col.scrollTop;
+  }
+  return saved;
+}
+function scrollIntoPlace(saved) {
+  const mark = [state.mode, state.stackId, state.clipId, state.focus, state.picker].join(":");
+  const jump = scrollJump;
+  scrollJump = false;
+  const changed = mark !== scrolled || jump;
+  scrolled = mark;
+  for (const sel of scrollers) {
+    const col = document.querySelector(sel);
+    if (!col) continue;
+    if (saved && saved[sel] != null) col.scrollTop = saved[sel];
+    if (!changed) continue;
+    const row = col.querySelector(".highlight, .selected, .preview.active, .hover");
+    if (!row) continue;
+    const font = parseFloat(getComputedStyle(row).fontSize) || 16;
+    col.scrollTop = Math.max(0, row.offsetTop - 2.5 * font);
+  }
+}
+
+function openMode(mode) {
+  state.mode = mode;
+  state.picker = 0;
+  state.pickerFilter = "";
+  if (mode === "filterType") state.picker = Math.max(0, FILTER_TYPES.indexOf(state.contentType));
+  focusRestore = null;
+}
+function deactivate() {
+  if (state.mode === "main") {
+    native({ cmd: "hide" });
+    return;
+  }
+  state.mode = "main";
+  state.pickerFilter = "";
+  focusRestore = null;
+}
+async function acceptPicker() {
+  const items = pickerItems();
+  if (!items.length) return;
+  const index = ((state.picker % items.length) + items.length) % items.length;
+  const item = items[index];
+  if (state.mode === "actions") {
+    state.mode = "main";
+    await item.run();
+    return;
+  }
+  if (state.mode === "new") {
+    if (item.name === "Stack") await addStack(false);
+    else if (item.name === "Clip") await addClip(state.stackId);
+    else await addStack(true);
+    state.mode = "main";
+    return;
+  }
+  if (state.mode === "filterType") {
+    state.contentType = item.name;
+    state.mode = "main";
+    return;
+  }
+  if (state.mode === "contentType") {
+    await setContentType(item.name);
+    state.mode = "main";
+    return;
+  }
+  if (state.mode === "stash") {
+    await stashCopy(item.id);
+    state.mode = "main";
+  }
+}
+async function addStack(withClip) {
+  const id = await putStack({ name: dn(), sort: "auto", layout: "flow" });
+  state.stackId = id;
+  state.focus = "stack";
+  if (withClip) await addClip(id);
+  else state.clipId = "";
+}
+async function addClip(stackId) {
+  if (!stackId) return;
+  const id = await putClip(stackId, "Text", "");
+  state.stackId = stackId;
+  state.clipId = id;
+  state.focus = "clip";
+  state.lastClip[stackId] = id;
+}
+async function deleteClip(clip) {
+  if (!clip) return;
+  const before = clipsOf(clip.stackId).map((c) => c.id);
+  const idx = before.indexOf(clip.id);
+  apply(await append("clip.delete", { id: clip.id }, ""));
+  if (state.clipId === clip.id) {
+    const after = clipsOf(clip.stackId);
+    const pick = after.length ? after[Math.min(Math.max(idx, 0), after.length - 1)] : null;
+    state.clipId = pick ? pick.id : "";
+    if (pick) state.lastClip[clip.stackId] = pick.id;
+  }
+}
+async function deleteStack(stack) {
+  if (!stack) return;
+  const before = state.stacks.map((s) => s.id);
+  const idx = before.indexOf(stack.id);
+  const was = state.stackId === stack.id;
+  apply(await append("stack.delete", { id: stack.id }, ""));
+  if (was) {
+    const after = state.stacks;
+    const pick = after.length ? after[Math.min(Math.max(idx, 0), after.length - 1)] : null;
+    state.stackId = pick ? pick.id : "";
+    state.clipId = "";
+  }
+}
+async function stashCopy(stackId) {
+  const clip = currentClip();
+  if (!clip || !stackId) return;
+  const frame = await append("clip.add", {
+    stack_id: stackId,
+    kind: "content",
+    mime_type: clip.mime || "text/plain",
+    content_type: clip.type,
+  }, clip.body);
+  remember(frame, clip.body);
+  apply(frame);
+}
+async function yak(andUp) {
+  const clip = currentClip();
+  const stack = currentStack();
+  if (!clip || !stack) return;
+  const ordered = clipsOf(stack.id);
+  const index = ordered.findIndex((item) => item.id === clip.id);
+  const moving = (andUp ? ordered.slice(0, index + 1) : [clip]).slice().reverse();
+  const stackId = await putStack({ name: dn(), sort: "auto", layout: "flow" });
+  let lastId = "";
+  for (const item of moving) {
+    lastId = await putClip(stackId, item.type, item.body);
+  }
+  state.stackId = stackId;
+  state.clipId = lastId;
+  state.focus = "clip";
+  state.lastClip[stackId] = lastId;
+}
+function startRename() {
+  const stack = currentStack();
+  if (!stack) return;
+  state.rename = stack.name;
+  openMode("rename");
+}
+async function commitRename() {
+  const stack = currentStack();
+  const input = document.getElementById("rename-input");
+  const name = input ? input.value : state.rename;
+  if (stack && name.trim()) apply(await append("stack.update", { id: stack.id, name: name.trim() }, ""));
+  state.mode = "main";
+}
+async function stashCreate() {
+  const clip = currentClip();
+  if (!clip) return;
+  const name = state.pickerFilter.trim() || dn();
+  const stackId = await putStack({ name, sort: "auto", layout: "flow" });
+  await putClip(stackId, clip.type, clip.body);
+  state.mode = "main";
+}
+function openLink(clip) {
+  if (!clip) return;
+  native({ cmd: "open", url: clip.body });
+}
+function selectedText() {
+  const el = document.activeElement;
+  if (el && typeof el.selectionStart === "number" && el.selectionEnd !== el.selectionStart) {
+    return el.value.slice(el.selectionStart, el.selectionEnd);
+  }
+  return window.getSelection().toString();
+}
+function copyClip() {
+  const clip = currentClip();
+  if (!clip) return;
+  native({ cmd: "copy", text: clip.type === "Image" ? "" : clip.body });
+}
+function resetWindow() {
+  document.documentElement.style.fontSize = "16px";
+  native({ cmd: "resetWindow" });
+}
+function resetNav() {
+  state.filter = "";
+  state.contentType = "All";
+  state.mode = "main";
+  state.picker = 0;
+  state.lastClip = {};
+  state.focus = "clip";
+  const stack = visibleStacks()[0];
+  if (!stack) return;
+  state.stackId = stack.id;
+  const clips = visibleClips(stack);
+  state.clipId = clips[0] ? clips[0].id : "";
+  if (state.clipId) state.lastClip[stack.id] = state.clipId;
+  scrollJump = true;
+}
+function positionBetween(lo, hi) {
+  const step = 65536;
+  if (lo == null && hi == null) return step;
+  if (lo == null) return hi <= 1 ? null : Math.floor(hi / 2);
+  if (hi == null) return lo + step;
+  if (hi - lo <= 1) return null;
+  return Math.floor((lo + hi) / 2);
+}
+async function renumber(clips) {
+  const step = 65536;
+  for (let i = 0; i < clips.length; i++) {
+    const want = (i + 1) * step;
+    if (clips[i].position !== want) apply(await append("clip.patch", { id: clips[i].id, position: want }, ""));
+  }
+}
+async function place(id, reordered) {
+  if (reordered.some((c) => c.id !== id && c.position == null)) {
+    await renumber(reordered);
+    return;
+  }
+  const i = reordered.findIndex((c) => c.id === id);
+  const lo = i > 0 ? reordered[i - 1].position : null;
+  const hi = i + 1 < reordered.length ? reordered[i + 1].position : null;
+  const pos = positionBetween(lo, hi);
+  if (pos == null) {
+    await renumber(reordered);
+    return;
+  }
+  apply(await append("clip.patch", { id, position: pos }, ""));
+}
+async function moveFocused(delta) {
+  if (state.focus !== "clip") return;
+  const stack = currentStack();
+  if (!stack) return;
+  const clips = clipsOf(stack.id);
+  const index = clips.findIndex((item) => item.id === state.clipId);
+  const next = index + delta;
+  if (index < 0 || next < 0 || next >= clips.length) return;
+  const reordered = clips.slice();
+  const [item] = reordered.splice(index, 1);
+  reordered.splice(next, 0, item);
+  if (!stack.ordered) {
+    apply(await append("stack.update", { id: stack.id, sort: "manual" }, ""));
+    await renumber(reordered);
+    return;
+  }
+  await place(item.id, reordered);
+}
+async function touch() {
+  if (state.focus === "clip") {
+    const clip = currentClip();
+    if (!clip) return;
+    const meta = { id: clip.id, touch: true };
+    if (clip.position != null) meta.position = clip.position;
+    apply(await append("clip.patch", meta, ""));
+    return;
+  }
+  const stack = currentStack();
+  if (!stack) return;
+  apply(await append("stack.update", { id: stack.id, touch: true }, ""));
+}
+async function toggleLock() {
+  const stack = currentStack();
+  if (!stack) return;
+  apply(await append("stack.update", { id: stack.id, locked: !stack.locked }, ""));
+}
+async function toggleSort() {
+  const stack = currentStack();
+  if (!stack) return;
+  if (stack.ordered) {
+    apply(await append("stack.update", { id: stack.id, sort: "auto" }, ""));
+    return;
+  }
+  const clips = clipsOf(stack.id);
+  apply(await append("stack.update", { id: stack.id, sort: "manual" }, ""));
+  await renumber(clips);
+}
+async function toggleCross() {
+  const stack = currentStack();
+  if (!stack) return;
+  if (stack.cross) {
+    apply(await append("stack.update", { id: stack.id, cross: false }, ""));
+    return;
+  }
+  for (const other of state.stacks) {
+    if (other.cross && other.id !== stack.id) apply(await append("stack.update", { id: other.id, cross: false }, ""));
+  }
+  apply(await append("stack.update", { id: stack.id, cross: true }, ""));
+}
+async function undo() {
+  const entry = model.deleted[0];
+  if (!entry) return;
+  const topic = entry.kind === "stack" ? "stack.restore" : "clip.restore";
+  apply(await append(topic, { target: entry.frame_id }, ""));
+  if (entry.kind === "clip") {
+    state.stackId = entry.snapshot.stack_id;
+    state.clipId = entry.snapshot.clip.id;
+    state.focus = "clip";
+    state.lastClip[entry.snapshot.stack_id] = entry.snapshot.clip.id;
+  } else {
+    state.stackId = entry.snapshot.stack.id;
+    state.clipId = "";
+    state.focus = "stack";
+  }
+}
+async function setContentType(name) {
+  const clip = currentClip();
+  if (!clip) return;
+  const type = name === "Plain Text" ? "Text" : name;
+  apply(await append("clip.patch", { id: clip.id, content_type: type }, ""));
+}
+async function noteId(id) {
+  const clip = clipById(id);
+  if (!clip) return;
+  const frame = await append("clip.add", {
+    stack_id: clip.stackId,
+    kind: "content",
+    mime_type: "text/plain",
+    content_type: "Text",
+  }, clip.id);
+  remember(frame, clip.id);
+  apply(frame);
+  selectClip(frame.id);
+}
+function match(event, opt) {
+  return (!opt.key || event.key === opt.key) &&
+    (!opt.code || event.code === opt.code) &&
+    event.shiftKey === !!opt.shift &&
+    event.ctrlKey === !!opt.ctrl &&
+    event.altKey === !!opt.alt &&
+    event.metaKey === !!opt.meta;
+}
+async function handleChords(event) {
+  if (match(event, { meta: true, code: "Equal" }) || match(event, { meta: true, shift: true, key: "+" })) {
+    event.preventDefault();
+    const size = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    document.documentElement.style.fontSize = (size + 1) + "px";
+    return true;
+  }
+  if (match(event, { meta: true, key: "-" })) {
+    event.preventDefault();
+    const size = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    document.documentElement.style.fontSize = Math.max(10, size - 1) + "px";
+    return true;
+  }
+  if (match(event, { meta: true, key: "k" })) {
+    event.preventDefault();
+    state.mode === "actions" ? deactivate() : openMode("actions");
+    render();
+    return true;
+  }
+  if (match(event, { meta: true, alt: true, shift: true, code: "KeyN" })) {
+    event.preventDefault();
+    await addStack(true);
+    state.mode = "main";
+    render();
+    return true;
+  }
+  if (match(event, { meta: true, key: "," })) {
+    event.preventDefault();
+    state.mode === "settings" ? deactivate() : openMode("settings");
+    render();
+    return true;
+  }
+  if (match(event, { meta: true, shift: true, code: "KeyN" })) {
+    event.preventDefault();
+    await addClip(state.stackId || (state.stacks[0] && state.stacks[0].id));
+    state.mode = "main";
+    render();
+    return true;
+  }
+  if (match(event, { meta: true, alt: true, code: "KeyN" })) {
+    event.preventDefault();
+    await addStack(false);
+    state.mode = "main";
+    render();
+    return true;
+  }
+  if (match(event, { meta: true, key: "n" })) {
+    event.preventDefault();
+    state.mode === "new" ? deactivate() : openMode("new");
+    render();
+    return true;
+  }
+  if (match(event, { meta: true, key: "u" })) {
+    event.preventDefault();
+    state.mode === "filterType" ? deactivate() : openMode("filterType");
+    render();
+    return true;
+  }
+  return false;
+}
+async function handleActionKey(event) {
+  const clip = currentClip();
+  const onClip = state.focus === "clip" && !!clip;
+  if (onClip && clip.type === "Link" && match(event, { meta: true, key: "o" })) { event.preventDefault(); openLink(clip); return true; }
+  if (onClip && match(event, { meta: true, shift: true, key: "u" })) { event.preventDefault(); openMode("contentType"); return true; }
+  if (clip && match(event, { meta: true, code: "KeyY" })) { event.preventDefault(); await yak(false); return true; }
+  if (clip && match(event, { meta: true, shift: true, code: "KeyY" })) { event.preventDefault(); await yak(true); return true; }
+  if (onClip && match(event, { meta: true, code: "KeyS" })) { event.preventDefault(); openMode("stash"); return true; }
+  if (clip && match(event, { meta: true, code: "Backspace" })) { event.preventDefault(); await deleteClip(clip); return true; }
+  if (currentStack() && match(event, { meta: true, alt: true, code: "Enter" })) { event.preventDefault(); startRename(); return true; }
+  if (currentStack() && match(event, { meta: true, alt: true, code: "Backspace" })) { event.preventDefault(); await deleteStack(currentStack()); return true; }
+  return false;
+}
+async function handleGlobal(event) {
+  try {
+    if (event.key === "Meta") return;
+    if (match(event, { meta: true, key: "c" })) {
+      const text = selectedText();
+      if (text) {
+        event.preventDefault();
+        native({ cmd: "copy", text, hide: false });
+      }
+      return;
+    }
+    if (await handleChords(event)) return;
+    if (state.mode === "main" && await handleActionKey(event)) { state.error = ""; render(); return; }
+    if (match(event, { key: "Enter" })) {
+      if (state.mode !== "main") return;
+      event.preventDefault();
+      copyClip();
+      return;
+    }
+    if (match(event, { key: "Escape" })) {
+      event.preventDefault();
+      if (state.mode === "main" && dirty()) {
+        state.filter = "";
+        state.contentType = "All";
+        render();
+        return;
+      }
+      deactivate();
+      render();
+      return;
+    }
+    if (match(event, { meta: true, key: "z" })) { event.preventDefault(); await undo(); state.error = ""; render(); return; }
+    if (match(event, { meta: true, key: "t" })) { event.preventDefault(); await touch(); state.error = ""; render(); return; }
+    if (match(event, { meta: true, key: "l" })) { event.preventDefault(); await toggleLock(); state.error = ""; render(); return; }
+    if (match(event, { ctrl: true, key: "h" }) || match(event, { key: "ArrowLeft" })) { event.preventDefault(); state.focus = "stack"; render(); return; }
+    if (match(event, { ctrl: true, key: "l" }) || match(event, { key: "ArrowRight" })) { event.preventDefault(); if (currentClip()) state.focus = "clip"; render(); return; }
+    if (match(event, { meta: true, key: "0" })) { event.preventDefault(); resetNav(); render(); return; }
+    if (match(event, { meta: true, ctrl: true, key: "n" }) || match(event, { meta: true, key: "ArrowDown" })) { event.preventDefault(); await moveFocused(1); state.error = ""; render(); return; }
+    if (match(event, { meta: true, ctrl: true, key: "p" }) || match(event, { meta: true, key: "ArrowUp" })) { event.preventDefault(); await moveFocused(-1); state.error = ""; render(); return; }
+    if (match(event, { ctrl: true, key: "n" }) || match(event, { key: "ArrowDown" })) { event.preventDefault(); moveSelection(1); render(); return; }
+    if (match(event, { ctrl: true, key: "p" }) || match(event, { key: "ArrowUp" })) { event.preventDefault(); moveSelection(-1); render(); return; }
+    if (match(event, { ctrl: true, alt: true, key: "n" }) || match(event, { alt: true, key: "ArrowDown" })) { event.preventDefault(); moveStack(1); render(); return; }
+    if (match(event, { ctrl: true, alt: true, key: "p" }) || match(event, { alt: true, key: "ArrowUp" })) { event.preventDefault(); moveStack(-1); render(); return; }
+    if (state.mode === "main" && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.length === 1 && event.target.id !== "filter-input") {
+      state.filter += event.key;
+      render();
+    }
+  } catch (err) {
+    state.error = String(err && err.message || err);
+    render();
+  }
+}
+function moveSelection(delta) {
+  if (state.focus === "stack") {
+    const next = neighbor(visibleStacks(), state.stackId, delta);
+    if (next) selectStack(next.id);
+  } else {
+    const stack = currentStack();
+    if (!stack) return;
+    const next = neighbor(visibleClips(stack), state.clipId, delta);
+    if (next) selectClip(next.id);
+  }
+}
+function moveStack(delta) {
+  const stacks = visibleStacks();
+  const next = neighbor(stacks, state.stackId, delta);
+  if (!next) return;
+  selectStack(next.id);
+  if (currentClip()) state.focus = "clip";
+}
+async function handlePickerKey(event) {
+  try {
+    if (await handleChords(event)) return;
+    if (state.mode === "stash" && match(event, { meta: true, key: "Enter" })) {
+      event.preventDefault();
+      await stashCreate();
+      state.error = "";
+      render();
+      return;
+    }
+    if (event.key === "Escape") { event.preventDefault(); deactivate(); render(); return; }
+    if (event.key === "Enter") { event.preventDefault(); await acceptPicker(); state.error = ""; render(); return; }
+    if (event.key === "ArrowDown" || (event.ctrlKey && event.key === "n" && !event.metaKey && !event.altKey)) {
+      event.preventDefault();
+      state.picker += 1;
+      render();
+      return;
+    }
+    if (event.key === "ArrowUp" || (event.ctrlKey && event.key === "p" && !event.metaKey && !event.altKey)) {
+      event.preventDefault();
+      state.picker -= 1;
+      render();
+    }
+  } catch (err) {
+    state.error = String(err && err.message || err);
+    render();
+  }
+}
+async function handleRenameKey(event) {
+  try {
+    if (event.key === "Escape") { event.preventDefault(); deactivate(); render(); return; }
+    if (event.metaKey && event.key === "Enter") { event.preventDefault(); await commitRename(); state.error = ""; render(); }
+  } catch (err) {
+    state.error = String(err && err.message || err);
+    render();
+  }
+}
+
+shell.addEventListener("click", (event) => {
+  if (event.target.closest("a")) event.preventDefault();
+});
+shell.addEventListener("mousedown", (event) => {
+  if (!ready) return;
+  const el = event.target.closest("[data-act]");
+  if (!el) return;
+  const act = el.dataset.act;
+  const id = el.dataset.id;
+  (async () => {
+    try {
+      if (act === "select-stack") selectStack(id);
+      else if (act === "select-clip") {
+        if (el.classList.contains("preview") && state.clipId === id && state.focus === "clip") return;
+        selectClip(id);
+      }
+      else if (act === "lock") await toggleLock();
+      else if (act === "sort") await toggleSort();
+      else if (act === "cross") await toggleCross();
+      else if (act === "copy") { copyClip(); return; }
+      else if (act === "theme") state.theme = state.theme === "dark" ? "light" : "dark";
+      else if (act === "mode-actions") state.mode === "actions" ? deactivate() : openMode("actions");
+      else if (act === "mode-new") state.mode === "new" ? deactivate() : openMode("new");
+      else if (act === "mode-filter") state.mode === "filterType" ? deactivate() : openMode("filterType");
+      else if (act === "mode-settings") state.mode === "settings" ? deactivate() : openMode("settings");
+      else if (act === "clear-filter") { state.filter = ""; state.contentType = "All"; }
+      else if (act === "undo") await undo();
+      else if (act === "back") deactivate();
+      else if (act === "accept") await acceptPicker();
+      else if (act === "pick") { state.picker = Number(id); await acceptPicker(); }
+      else if (act === "stash-new") await stashCreate();
+      else if (act === "rename-save") await commitRename();
+      else if (act === "open-link") openLink(clipById(id));
+      else if (act === "note-id") await noteId(id);
+      else if (act === "shortcut") {
+        state.shortcut[id] = !state.shortcut[id];
+        native({ cmd: "shortcut", ...state.shortcut });
+      }
+      state.error = "";
+      render();
+    } catch (err) {
+      state.error = String(err && err.message || err);
+      render();
+    }
+  })();
+});
+shell.addEventListener("input", (event) => {
+  const id = event.target.id;
+  if (id === "filter-input") state.filter = event.target.value;
+  else if (id === "action-search" || id === "stash-search" || id === "type-search") {
+    state.pickerFilter = event.target.value;
+    state.picker = 0;
+  } else if (id === "rename-input") {
+    state.rename = event.target.value;
+    return;
+  } else return;
+  render();
+});
+document.addEventListener("keydown", (event) => {
+  if (!ready) return;
+  const id = event.target && event.target.id;
+  if (id === "rename-input") { handleRenameKey(event); return; }
+  if (id === "action-search" || id === "stash-search" || id === "type-search") { handlePickerKey(event); return; }
+  if (state.mode === "new" || state.mode === "filterType" || state.mode === "settings") {
+    handlePickerKey(event);
+    return;
+  }
+  handleGlobal(event);
+});
+
+let liveChain = Promise.resolve();
+window.__xsLive = (line, hidden) => {
+  window.__xsHidden = hidden;
+  liveChain = liveChain.then(() => ingest(line, hidden)).catch((err) => {
+    state.error = String(err && err.message || err);
+    render();
+  });
+};
+async function ingest(line, hidden) {
+  if (!ready) return;
+  const frame = JSON.parse(line);
+  if (!frame || seen.has(frame.id)) return;
+  applyFrame(frame);
+  if (frame.hash && (frame.topic === "clip.add" || frame.topic === "clip.update")) await ensureBody(frame.hash);
+  syncFlat();
+  const meta = frame.meta || {};
+  const landed = frame.topic === "clip.add" || frame.topic === "clip.update" || (frame.topic === "clip.patch" && meta.touch);
+  const clipId = frame.topic === "clip.add" ? frame.id : meta.id;
+  if (hidden && landed && clipId && clipById(clipId)) selectClip(clipId);
+  render();
+}
+
+async function boot() {
+  shell.innerHTML = `<div class="empty">loading</div>`;
+  try {
+    if (scruTime("03gz52gd4vc0zar133h7a26kg") !== 1790945812609) {
+      throw new Error("scru128 clock decode is wrong");
+    }
+    const frames = await xsCall({ cmd: "log" });
+    model = { stacks: [], deleted: [] };
+    seen = new Set();
+    for (const frame of frames) applyFrame(frame);
+    if (!frames.some((frame) => frame.topic === "stack.add")) await seed();
+    const last = await catchUp();
+    await loadBodies();
+    syncFlat();
+    if (state.stacks[0]) {
+      selectStack(state.stacks[0].id);
+      state.focus = "clip";
+    }
+    ready = true;
+    window.__stacksReady = true;
+    render();
+    native({ cmd: "follow", after: last });
+  } catch (err) {
+    ready = false;
+    window.__stacksReady = false;
+    shell.innerHTML = `<div class="empty">${esc(err && err.message || err)}</div>`;
+  }
+}
+boot();
+</script>
+</body>
+</html>
