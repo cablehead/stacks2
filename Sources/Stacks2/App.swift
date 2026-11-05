@@ -197,6 +197,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The bytes of a `data:image/png;base64,...` URL, as the panel holds an image clip.
+    static func pngData(fromDataURL url: String) -> Data? {
+        guard url.hasPrefix("data:image/png;base64,"),
+              let comma = url.firstIndex(of: ",") else { return nil }
+        return Data(base64Encoded: String(url[url.index(after: comma)...]))
+    }
+
     func handle(_ body: [String: Any]) {
         switch body["cmd"] as? String {
         case "hide":
@@ -204,10 +211,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "show":
             showPanel()
         case "copy":
-            let text = body["text"] as? String ?? ""
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
+            if let image = body["image"] as? String, let png = Self.pngData(fromDataURL: image) {
+                pasteboard.setData(png, forType: .png)
+            } else {
+                pasteboard.setString(body["text"] as? String ?? "", forType: .string)
+            }
             if (body["hide"] as? Bool) != false {
                 window?.orderOut(nil)
             }

@@ -1133,7 +1133,10 @@ function selectedText() {
 function copyClip() {
   const clip = currentClip();
   if (!clip) return;
-  native({ cmd: "copy", text: clip.type === "Image" ? "" : clip.body });
+  // An image goes back as its PNG bytes, so it pastes, and the store sees the
+  // same hash and moves the clip to the top, as it does for text.
+  if (clip.type === "Image") native({ cmd: "copy", image: clip.body });
+  else native({ cmd: "copy", text: clip.body });
 }
 function resetWindow() {
   document.documentElement.style.fontSize = "16px";
