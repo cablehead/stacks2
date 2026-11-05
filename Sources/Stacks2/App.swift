@@ -15,11 +15,33 @@ enum Stacks2 {
     }
 }
 
-struct Shortcut {
+struct Shortcut: Codable {
     var shift = true
     var ctrl = true
     var alt = false
     var command = false
+
+    private static let defaultsKey = "shortcut"
+
+    /// The shortcut chosen last time, or the default when none was saved.
+    static func load() -> Shortcut {
+        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+              let saved = try? JSONDecoder().decode(Shortcut.self, from: data) else {
+            return Shortcut()
+        }
+        return saved
+    }
+
+    func save() {
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: Shortcut.defaultsKey)
+        }
+    }
+
+    var json: String {
+        guard let data = try? JSONEncoder().encode(self) else { return "null" }
+        return String(decoding: data, as: UTF8.self)
+    }
 }
 
 extension Notification.Name {
@@ -70,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let xs = XsStore()
     private var pasteboard: PasteboardWatch?
     private var follow: LogFollow?
-    var shortcut = Shortcut()
+    var shortcut = Shortcut.load()
     var window: NSWindow?
     var webView: WKWebView?
     var hatch: Hatch?
@@ -80,6 +102,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(handler, forURLScheme: "stacks")
         config.userContentController.add(bridge, name: "stacks")
+        // The panel's shortcut toggles start from the saved shortcut.
+        config.userContentController.addUserScript(WKUserScript(
+            source: "window.stacksShortcut = \(shortcut.json);",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
@@ -205,6 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             shortcut.ctrl = body["ctrl"] as? Bool ?? false
             shortcut.alt = body["alt"] as? Bool ?? false
             shortcut.command = body["command"] as? Bool ?? false
+            shortcut.save()
             hotkey.register(shortcut)
         case "log", "append", "cas":
             let id = body["id"] as? String ?? ""

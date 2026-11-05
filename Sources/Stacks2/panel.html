@@ -262,7 +262,7 @@ const state = {
   rename: "",
   undo: false,
   error: "",
-  shortcut: { shift: true, ctrl: true, alt: false, command: false },
+  shortcut: window.stacksShortcut || { shift: true, ctrl: true, alt: false, command: false },
   stacks: [],
   clips: [],
 };
