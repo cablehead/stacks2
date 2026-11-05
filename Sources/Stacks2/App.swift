@@ -97,8 +97,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var webView: WKWebView?
     var hatch: Hatch?
     var outsideClicks: Any?
-    /// The app in front when the panel was shown.
-    var previousApp: NSRunningApplication?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let config = WKWebViewConfiguration()
@@ -124,19 +122,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.isFloatingPanel = true
         window.becomesKeyOnlyIfNeeded = false
         window.hidesOnDeactivate = true
-        // Stacks2 is not activated to show the panel, so hidesOnDeactivate
-        // never fires: hide when the panel stops being key (Cmd-Tab, a click
-        // in another app's window), as sol does.
-        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { _ in
-            Task { @MainActor in
-                if appDelegate.window?.isVisible == true { appDelegate.hidePanel() }
-            }
-        }
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
             Task { @MainActor in
                 guard let panel = appDelegate.window, panel.isVisible else { return }
                 if !panel.frame.contains(NSEvent.mouseLocation) {
-                    appDelegate.hidePanel()
+                    panel.orderOut(nil)
                 }
             }
         }
@@ -193,30 +183,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// Show the panel without activating Stacks2, as cablehead/stacks and sol
-    /// do: the panel is non-activating, so it takes the keyboard while the app
-    /// in front stays active, and that app has its focus when the panel goes.
     func showPanel() {
-        if let front = NSWorkspace.shared.frontmostApplication,
-           front.processIdentifier != ProcessInfo.processInfo.processIdentifier {
-            previousApp = front
-        }
+        NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         if let webView { window?.makeFirstResponder(webView) }
     }
 
-    /// Hide the panel. If Stacks2 became active anyway (launched, or its Dock
-    /// icon clicked), hand activation back to the app that was in front.
-    func hidePanel() {
-        window?.orderOut(nil)
-        if NSApp.isActive, let previousApp, !previousApp.isTerminated {
-            previousApp.activate()
-        }
-    }
-
     func togglePanel() {
         if window?.isVisible == true {
-            hidePanel()
+            window?.orderOut(nil)
         } else {
             showPanel()
         }
@@ -232,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func handle(_ body: [String: Any]) {
         switch body["cmd"] as? String {
         case "hide":
-            hidePanel()
+            window?.orderOut(nil)
         case "show":
             showPanel()
         case "copy":
@@ -244,7 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pasteboard.setString(body["text"] as? String ?? "", forType: .string)
             }
             if (body["hide"] as? Bool) != false {
-                hidePanel()
+                window?.orderOut(nil)
             }
         case "open":
             if let raw = body["url"] as? String, let url = URL(string: raw) {
