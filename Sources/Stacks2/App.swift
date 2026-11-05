@@ -97,6 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var webView: WKWebView?
     var hatch: Hatch?
     var outsideClicks: Any?
+    /// The app in front when the panel was shown.
+    var previousApp: NSRunningApplication?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let config = WKWebViewConfiguration()
@@ -184,14 +186,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showPanel() {
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            previousApp = front
+        }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         if let webView { window?.makeFirstResponder(webView) }
     }
 
+    /// Hide the panel and give focus back to the app that was in front.
+    func hidePanel() {
+        window?.orderOut(nil)
+        if let previousApp, !previousApp.isTerminated {
+            previousApp.activate()
+        }
+    }
+
     func togglePanel() {
         if window?.isVisible == true {
-            window?.orderOut(nil)
+            hidePanel()
         } else {
             showPanel()
         }
@@ -207,7 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func handle(_ body: [String: Any]) {
         switch body["cmd"] as? String {
         case "hide":
-            window?.orderOut(nil)
+            hidePanel()
         case "show":
             showPanel()
         case "copy":
@@ -219,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 pasteboard.setString(body["text"] as? String ?? "", forType: .string)
             }
             if (body["hide"] as? Bool) != false {
-                window?.orderOut(nil)
+                hidePanel()
             }
         case "open":
             if let raw = body["url"] as? String, let url = URL(string: raw) {
