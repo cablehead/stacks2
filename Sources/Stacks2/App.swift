@@ -241,6 +241,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Open an image clip in Preview. Preview opens files only, so the PNG is
+    /// written once to ~/Library/Caches/Stacks2/preview/, named by its hash
+    /// (the same clip reuses its file), and the panel hides as Preview comes
+    /// to the front.
+    func openInPreview(_ png: Data, hash: String) {
+        let fm = FileManager.default
+        let dir = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Stacks2/preview", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let safe = hash.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
+        let name = safe.isEmpty ? UUID().uuidString : String(String.UnicodeScalarView(safe).prefix(24))
+        let url = dir.appendingPathComponent("\(name).png")
+        if !fm.fileExists(atPath: url.path) {
+            do { try png.write(to: url, options: .atomic) } catch { NSSound.beep(); return }
+        }
+        guard let preview = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") else { return }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        hidePanel()
+        NSWorkspace.shared.open([url], withApplicationAt: preview, configuration: config) { _, error in
+            if let error { NSLog("stacks2: open in Preview failed: \(error)") }
+        }
+    }
+
     /// The bytes of a `data:image/png;base64,...` URL, as the panel holds an image clip.
     static func pngData(fromDataURL url: String) -> Data? {
         guard url.hasPrefix("data:image/png;base64,"),
@@ -269,7 +293,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let raw = body["url"] as? String, let url = URL(string: raw) {
                 NSWorkspace.shared.open(url)
             }
-        case "follow":
+        case "openImage":
+            if let image = body["image"] as? String, let png = Self.pngData(fromDataURL: image) {
+                openInPreview(png, hash: body["hash"] as? String ?? "")
+            }
+                case "follow":
             let after = body["after"] as? String ?? ""
             guard let socket = xs.socketPath(), !socket.isEmpty else { return }
             if follow == nil { follow = LogFollow() }

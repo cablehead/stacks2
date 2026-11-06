@@ -758,6 +758,7 @@ function actions() {
   const onClip = state.focus === "clip" && !!clip;
   const list = [
     { name: "Open link in browser", keys: ["⌘", "O"], show: onClip && clip.type === "Link", run: () => openLink(clip) },
+    { name: "Open image in Preview", keys: ["⌘", "O"], show: onClip && clip.type === "Image", run: () => openImage(clip) },
     { name: "Set clip content type", keys: ["⇧", "⌘", "U"], show: onClip, run: () => openMode("contentType") },
     { name: "Yak shave", keys: ["⌘", "Y"], show: !!clip, run: () => yak(false) },
     { name: "Yak on here and up", keys: ["⇧", "⌘", "Y"], show: !!clip, run: () => yak(true) },
@@ -1126,6 +1127,11 @@ function openLink(clip) {
   if (!clip) return;
   native({ cmd: "open", url: clip.body });
 }
+// An image opens in Preview, from a file Stacks2 writes for it (App.swift).
+function openImage(clip) {
+  if (!clip || !clip.body) return;
+  native({ cmd: "openImage", image: clip.body, hash: clip.hash || "" });
+}
 function selectedText() {
   const el = document.activeElement;
   if (el && typeof el.selectionStart === "number" && el.selectionEnd !== el.selectionStart) {
@@ -1356,6 +1362,7 @@ async function handleActionKey(event) {
   const clip = currentClip();
   const onClip = state.focus === "clip" && !!clip;
   if (onClip && clip.type === "Link" && match(event, { meta: true, key: "o" })) { event.preventDefault(); openLink(clip); return true; }
+  if (onClip && clip.type === "Image" && match(event, { meta: true, key: "o" })) { event.preventDefault(); openImage(clip); return true; }
   if (onClip && match(event, { meta: true, shift: true, key: "u" })) { event.preventDefault(); openMode("contentType"); return true; }
   if (clip && match(event, { meta: true, code: "KeyY" })) { event.preventDefault(); await yak(false); return true; }
   if (clip && match(event, { meta: true, shift: true, code: "KeyY" })) { event.preventDefault(); await yak(true); return true; }
