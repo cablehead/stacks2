@@ -9,7 +9,9 @@ private let appDelegate = AppDelegate()
 enum Stacks2 {
     static func main() {
         let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
+        // An accessory app, as cablehead/stacks is (no Dock icon): the panel
+        // shows over the app in front without taking activation from it.
+        app.setActivationPolicy(.accessory)
         app.delegate = appDelegate
         app.run()
     }
@@ -121,9 +123,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
+        // As stacks (tauri-nspanel) does: set non-activating again after the
+        // panel is made, so it can be key while another app stays active.
+        window.styleMask.remove(.nonactivatingPanel)
+        window.styleMask.insert(.nonactivatingPanel)
         window.isFloatingPanel = true
         window.becomesKeyOnlyIfNeeded = false
-        window.hidesOnDeactivate = true
+        // Off: Stacks2 never becomes the active app, and a panel that hides
+        // on deactivate would never be drawn. Clicks outside hide it instead.
+        window.hidesOnDeactivate = false
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
             Task { @MainActor in
                 guard let panel = appDelegate.window, panel.isVisible else { return }
@@ -135,9 +143,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
-        window.level = .floating
+        window.level = NSWindow.Level(rawValue: 7)
         window.isMovableByWindowBackground = true
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.collectionBehavior = [.moveToActiveSpace, .stationary, .transient, .fullScreenAuxiliary, .ignoresCycle]
         window.contentView = webView
         window.center()
         self.window = window
@@ -190,15 +198,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            front.processIdentifier != ProcessInfo.processInfo.processIdentifier {
             previousApp = front
         }
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
+        // tauri-nspanel's show: order front regardless of which app is
+        // active, then make the panel key. Stacks2 is never activated.
         if let webView { window?.makeFirstResponder(webView) }
+        window?.orderFrontRegardless()
+        window?.makeKey()
     }
 
     /// Hide the panel and give focus back to the app that was in front.
     func hidePanel() {
         window?.orderOut(nil)
-        if let previousApp, !previousApp.isTerminated {
+        // Only if Stacks2 did become active (launched, say): hand it back.
+        if NSApp.isActive, let previousApp, !previousApp.isTerminated {
             previousApp.activate()
         }
     }
