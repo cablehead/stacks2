@@ -12,8 +12,30 @@ enum Stacks2 {
         // An accessory app, as cablehead/stacks is (no Dock icon): the panel
         // shows over the app in front without taking activation from it.
         app.setActivationPolicy(.accessory)
+        app.mainMenu = Stacks2.menu()
         app.delegate = appDelegate
         app.run()
+    }
+
+    /// A menu that is never shown (an accessory app has no menu bar), for its
+    /// key equivalents: Cmd+C, Cmd+V, Cmd+X, Cmd+A, Cmd+Z in the panel's text
+    /// fields, and Cmd+Q to quit.
+    static func menu() -> NSMenu {
+        let main = NSMenu()
+        let app = NSMenu(title: "Stacks2")
+        app.addItem(withTitle: "Quit Stacks2", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        main.addItem(withTitle: "Stacks2", action: nil, keyEquivalent: "").submenu = app
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        main.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
+        return main
     }
 }
 
@@ -123,10 +145,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        // As stacks (tauri-nspanel) does: set non-activating again after the
-        // panel is made, so it can be key while another app stays active.
-        window.styleMask.remove(.nonactivatingPanel)
-        window.styleMask.insert(.nonactivatingPanel)
         window.isFloatingPanel = true
         window.becomesKeyOnlyIfNeeded = false
         // Off: Stacks2 never becomes the active app, and a panel that hides
@@ -145,7 +163,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.hasShadow = false
         window.level = NSWindow.Level(rawValue: 7)
         window.isMovableByWindowBackground = true
-        window.collectionBehavior = [.moveToActiveSpace, .stationary, .transient, .fullScreenAuxiliary, .ignoresCycle]
+        // Transient: closed in Mission Control, as Spotlight is.
+        window.collectionBehavior = [.moveToActiveSpace, .transient, .fullScreenAuxiliary, .ignoresCycle]
         window.contentView = webView
         window.center()
         self.window = window
