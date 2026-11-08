@@ -992,6 +992,20 @@ function captureScroll() {
   }
   return saved;
 }
+// Scroll a column to `top`, easing out. By hand: WebKit starts a smooth
+// scrollTo on a column just built from its top, not from the scroll restored
+// on it, so every move swept the whole list into place.
+function glide(col, top) {
+  const from = col.scrollTop;
+  const start = performance.now();
+  const step = (now) => {
+    if (!col.isConnected) return;
+    const k = Math.min(1, (now - start) / 220);
+    col.scrollTop = from + (top - from) * (1 - Math.pow(1 - k, 3));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
 function scrollIntoPlace(saved) {
   const mark = [state.mode, state.stackId, state.clipId, state.focus, state.picker].join(":");
   const jump = scrollJump;
@@ -1013,7 +1027,9 @@ function scrollIntoPlace(saved) {
     const font = parseFloat(getComputedStyle(row).fontSize) || 16;
     // Each render rebuilds the column at its old scroll, so the move to the
     // selection animates from there, as cablehead/stacks does.
-    col.scrollTo({ top: Math.max(0, row.offsetTop - 2.5 * font), behavior: reduceMotion.matches || swapped ? "auto" : "smooth" });
+    const top = Math.max(0, row.offsetTop - 2.5 * font);
+    if (reduceMotion.matches || swapped) { col.scrollTop = top; continue; }
+    glide(col, top);
   }
 }
 
