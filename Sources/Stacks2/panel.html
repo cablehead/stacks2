@@ -979,6 +979,11 @@ let scrolled = "";
 let scrollingUntil = 0;
 let scrollJump = false;
 const scrollers = ["#col-stacks", "#col-clips", "#col-preview"];
+// What each column showed last render. A column whose content was swapped
+// (the clips and previews, on moving to another stack) jumps to its
+// selection: animating from the old stack's scroll would sweep across clips
+// that are no longer there.
+const shown = {};
 function captureScroll() {
   const saved = {};
   for (const sel of scrollers) {
@@ -998,14 +1003,17 @@ function scrollIntoPlace(saved) {
   for (const sel of scrollers) {
     const col = document.querySelector(sel);
     if (!col) continue;
-    if (saved && saved[sel] != null) col.scrollTop = saved[sel];
-    if (!changed) continue;
+    const content = sel === "#col-stacks" ? state.mode : state.mode + ":" + state.stackId;
+    const swapped = shown[sel] !== content;
+    shown[sel] = content;
+    if (saved && saved[sel] != null && !swapped) col.scrollTop = saved[sel];
+    if (!changed && !swapped) continue;
     const row = col.querySelector(".highlight, .selected, .preview.active, .hover");
     if (!row) continue;
     const font = parseFloat(getComputedStyle(row).fontSize) || 16;
     // Each render rebuilds the column at its old scroll, so the move to the
     // selection animates from there, as cablehead/stacks does.
-    col.scrollTo({ top: Math.max(0, row.offsetTop - 2.5 * font), behavior: reduceMotion.matches ? "auto" : "smooth" });
+    col.scrollTo({ top: Math.max(0, row.offsetTop - 2.5 * font), behavior: reduceMotion.matches || swapped ? "auto" : "smooth" });
   }
 }
 
