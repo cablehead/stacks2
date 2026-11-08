@@ -249,6 +249,9 @@ const CONTENT_TYPES = ["Plain Text", "Markdown", "Nushell", ...CODE.filter(t => 
 const FILTER_TYPES = ["All", "Links", "Images", "Markdown", "Source Code"];
 const DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz";
 
+// Open the editor with the cursor at the end, as the original Stacks did.
+let editCaretToEnd = false;
+
 const state = {
   theme: "dark",
   filter: "",
@@ -261,6 +264,7 @@ const state = {
   picker: 0,
   pickerFilter: "",
   rename: "",
+  edit: "",
   undo: false,
   error: "",
   shortcut: window.stacksShortcut || { shift: true, ctrl: true, alt: false, command: false },
@@ -760,6 +764,7 @@ function actions() {
   const list = [
     { name: "Open link in browser", keys: ["⌘", "O"], show: onClip && clip.type === "Link", run: () => openLink(clip) },
     { name: "Open image in Preview", keys: ["⌘", "O"], show: onClip && clip.type === "Image", run: () => openImage(clip) },
+    { name: "Edit clip", keys: ["⌘", "⏎"], show: onClip && editable(clip), run: () => startEdit() },
     { name: "Set clip content type", keys: ["⇧", "⌘", "U"], show: onClip, run: () => openMode("contentType") },
     { name: "Yak shave", keys: ["⌘", "Y"], show: !!clip, run: () => yak(false) },
     { name: "Yak on here and up", keys: ["⇧", "⌘", "Y"], show: !!clip, run: () => yak(true) },
@@ -802,6 +807,7 @@ function modeName() {
     case "settings": return "Settings";
     case "stash": return "Stash clip to stack ...";
     case "rename": return "Rename stack";
+    case "edit": return "Edit clip";
     default: return "";
   }
 }
@@ -837,12 +843,16 @@ function hotkeys() {
     return select + item("Create new", "stash-new", ["⌘", "⏎"]) + item("Back", "back", ["ESC"]);
   }
   if (state.mode === "rename") return item("Capture", "rename-save", ["⌘", "⏎"]) + item("Discard", "back", ["ESC"]);
+  if (state.mode === "edit") return item("Capture", "edit-save", ["⌘", "⏎"]) + item("Discard", "back", ["ESC"]);
   if (state.mode === "settings") return item("Back", "back", ["ESC"]);
   return "";
 }
 function overlay() {
   if (state.mode === "rename") {
     return `<div class="rename-back"><div class="rename-card"><textarea id="rename-input" spellcheck="false">${esc(state.rename)}</textarea></div></div>`;
+  }
+  if (state.mode === "edit") {
+    return `<div class="rename-back"><div class="rename-card"><textarea id="edit-input" spellcheck="false">${esc(state.edit)}</textarea></div></div>`;
   }
   if (state.mode === "settings") {
     const mod = (name, on) => `<button class="mod ${on ? "on" : ""}" data-act="shortcut" data-id="${name}">${esc(name)}</button>`;
@@ -945,9 +955,15 @@ function restoreFocus() {
   else if (state.mode === "stash") target = document.getElementById("stash-search");
   else if (state.mode === "contentType") target = document.getElementById("type-search");
   else if (state.mode === "rename") target = document.getElementById("rename-input");
+  else if (state.mode === "edit") target = document.getElementById("edit-input");
   else if (state.mode === "main") target = document.getElementById("filter-input");
   if (!target) return;
   target.focus();
+  if (target.id === "edit-input" && editCaretToEnd) {
+    editCaretToEnd = false;
+    target.setSelectionRange(target.value.length, target.value.length);
+    return;
+  }
   if (focusRestore && focusRestore.id === target.id && target.setSelectionRange && focusRestore.start != null) {
     const end = Math.min(focusRestore.end ?? focusRestore.start, target.value.length);
     const start = Math.min(focusRestore.start, target.value.length);
@@ -1108,6 +1124,30 @@ function startRename() {
   if (!stack) return;
   state.rename = stack.name;
   openMode("rename");
+}
+// A text clip can be edited in place; an image cannot.
+function editable(clip) {
+  return !!clip && clip.type !== "Image" && (clip.mime || "text/plain") === "text/plain";
+}
+function startEdit() {
+  const clip = currentClip();
+  if (!editable(clip)) return;
+  state.edit = clip.body;
+  openMode("edit");
+  editCaretToEnd = true;
+}
+// Save the text as a new version of the same clip, so it keeps its place.
+// Emptied or unchanged text saves nothing.
+async function commitEdit() {
+  const clip = currentClip();
+  const input = document.getElementById("edit-input");
+  const body = input ? input.value : state.edit;
+  if (clip && body.trim() && body !== clip.body) {
+    const frame = await append("clip.update", { id: clip.id }, body);
+    remember(frame, body);
+    apply(frame);
+  }
+  state.mode = "main";
 }
 async function commitRename() {
   const stack = currentStack();
@@ -1369,6 +1409,7 @@ async function handleActionKey(event) {
   if (clip && match(event, { meta: true, shift: true, code: "KeyY" })) { event.preventDefault(); await yak(true); return true; }
   if (onClip && match(event, { meta: true, code: "KeyS" })) { event.preventDefault(); openMode("stash"); return true; }
   if (clip && match(event, { meta: true, code: "Backspace" })) { event.preventDefault(); await deleteClip(clip); return true; }
+  if (onClip && editable(clip) && match(event, { meta: true, code: "Enter" })) { event.preventDefault(); startEdit(); return true; }
   if (currentStack() && match(event, { meta: true, alt: true, code: "Enter" })) { event.preventDefault(); startRename(); return true; }
   if (currentStack() && match(event, { meta: true, alt: true, code: "Backspace" })) { event.preventDefault(); await deleteStack(currentStack()); return true; }
   return false;
@@ -1471,6 +1512,15 @@ async function handlePickerKey(event) {
     render();
   }
 }
+async function handleEditKey(event) {
+  try {
+    if (event.key === "Escape") { event.preventDefault(); deactivate(); render(); return; }
+    if (event.metaKey && event.key === "Enter") { event.preventDefault(); await commitEdit(); state.error = ""; render(); }
+  } catch (err) {
+    state.error = String(err && err.message || err);
+    render();
+  }
+}
 async function handleRenameKey(event) {
   try {
     if (event.key === "Escape") { event.preventDefault(); deactivate(); render(); return; }
@@ -1513,6 +1563,7 @@ shell.addEventListener("mousedown", (event) => {
       else if (act === "pick") { state.picker = Number(id); await acceptPicker(); }
       else if (act === "stash-new") await stashCreate();
       else if (act === "rename-save") await commitRename();
+      else if (act === "edit-save") await commitEdit();
       else if (act === "open-link") openLink(clipById(id));
       else if (act === "note-id") await noteId(id);
       else if (act === "shortcut") {
@@ -1536,6 +1587,9 @@ shell.addEventListener("input", (event) => {
   } else if (id === "rename-input") {
     state.rename = event.target.value;
     return;
+  } else if (id === "edit-input") {
+    state.edit = event.target.value;
+    return;
   } else return;
   render();
 });
@@ -1543,6 +1597,7 @@ document.addEventListener("keydown", (event) => {
   if (!ready) return;
   const id = event.target && event.target.id;
   if (id === "rename-input") { handleRenameKey(event); return; }
+  if (id === "edit-input") { handleEditKey(event); return; }
   if (id === "action-search" || id === "stash-search" || id === "type-search") { handlePickerKey(event); return; }
   if (state.mode === "new" || state.mode === "filterType" || state.mode === "settings") {
     handlePickerKey(event);
