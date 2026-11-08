@@ -100,6 +100,7 @@
     flex: 3;
     min-width: 0;
     overflow: auto;
+    container-type: size;
     display: flex;
     flex-direction: column;
   }
@@ -123,7 +124,7 @@
   .preview.not-active:hover { opacity: 0.6; filter: grayscale(60%); background: var(--bg); }
   .preview.active { box-shadow: 0 0 6px var(--shadow); background: var(--bg); }
   .preview .body { padding: 0 1ch; white-space: pre-wrap; }
-  .preview img { max-width: 100%; display: block; }
+  .preview img { max-width: 100%; max-height: 90cqh; width: auto; height: auto; display: block; }
   .markdown { padding: 0 2ch; }
   .markdown code, code { background: var(--hover); border-radius: 2px; padding: 0 0.5ch; }
   .markdown blockquote { margin: 0; padding-left: 2ch; border-left: 4px solid var(--border); }
