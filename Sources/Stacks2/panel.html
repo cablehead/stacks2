@@ -251,6 +251,7 @@ const DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz";
 
 // Open the editor with the cursor at the end, as the original Stacks did.
 let editCaretToEnd = false;
+let savingEdit = false;
 
 const state = {
   theme: "dark",
@@ -972,6 +973,10 @@ function restoreFocus() {
 }
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 let scrolled = "";
+// A smooth scroll to the selection still under way. A render rebuilds the
+// columns at their old scroll, which would stop it short, so a render while
+// one is pending carries on to the selection.
+let scrollingUntil = 0;
 let scrollJump = false;
 const scrollers = ["#col-stacks", "#col-clips", "#col-preview"];
 function captureScroll() {
@@ -986,7 +991,9 @@ function scrollIntoPlace(saved) {
   const mark = [state.mode, state.stackId, state.clipId, state.focus, state.picker].join(":");
   const jump = scrollJump;
   scrollJump = false;
-  const changed = mark !== scrolled || jump;
+  const pending = performance.now() < scrollingUntil;
+  const changed = mark !== scrolled || jump || pending;
+  if (mark !== scrolled || jump) scrollingUntil = performance.now() + 700;
   scrolled = mark;
   for (const sel of scrollers) {
     const col = document.querySelector(sel);
@@ -1409,7 +1416,7 @@ async function handleActionKey(event) {
   if (clip && match(event, { meta: true, shift: true, code: "KeyY" })) { event.preventDefault(); await yak(true); return true; }
   if (onClip && match(event, { meta: true, code: "KeyS" })) { event.preventDefault(); openMode("stash"); return true; }
   if (clip && match(event, { meta: true, code: "Backspace" })) { event.preventDefault(); await deleteClip(clip); return true; }
-  if (onClip && editable(clip) && match(event, { meta: true, code: "Enter" })) { event.preventDefault(); startEdit(); return true; }
+  if (onClip && editable(clip) && match(event, { meta: true, code: "Enter" })) { event.preventDefault(); if (!event.repeat) startEdit(); return true; }
   if (currentStack() && match(event, { meta: true, alt: true, code: "Enter" })) { event.preventDefault(); startRename(); return true; }
   if (currentStack() && match(event, { meta: true, alt: true, code: "Backspace" })) { event.preventDefault(); await deleteStack(currentStack()); return true; }
   return false;
@@ -1515,7 +1522,15 @@ async function handlePickerKey(event) {
 async function handleEditKey(event) {
   try {
     if (event.key === "Escape") { event.preventDefault(); deactivate(); render(); return; }
-    if (event.metaKey && event.key === "Enter") { event.preventDefault(); await commitEdit(); state.error = ""; render(); }
+    if (event.metaKey && event.key === "Enter") {
+      event.preventDefault();
+      // A held key repeats: save once, and only while the editor is open.
+      if (event.repeat || savingEdit) return;
+      savingEdit = true;
+      try { await commitEdit(); } finally { savingEdit = false; }
+      state.error = "";
+      render();
+    }
   } catch (err) {
     state.error = String(err && err.message || err);
     render();
