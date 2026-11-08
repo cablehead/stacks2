@@ -290,7 +290,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 hidePanel()
             }
         case "open":
+            // As with an image: the panel hides as the browser comes forward.
             if let raw = body["url"] as? String, let url = URL(string: raw) {
+                hidePanel()
                 NSWorkspace.shared.open(url)
             }
         case "openImage":
