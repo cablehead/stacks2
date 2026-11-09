@@ -915,10 +915,7 @@ function render() {
           ${clips.length ? clips.map((item) => row(terse(item), iconFor(item.type), item.id === clip?.id, !stackWide && item.id === clip?.id, "select-clip", item.id)).join("") : `<div class="empty">no items</div>`}
           <div style="height: calc(100% - 2.5em)"></div>
         </div>
-        <div class="previews" id="col-preview">
-          ${clips.map((item) => `<div class="preview ${item.id === clip?.id ? "active" : "not-active"}" data-act="select-clip" data-id="${item.id}">${renderBody(item)}</div>`).join("")}
-          <div style="min-height: calc(100% - 2.5em)"></div>
-        </div>
+        <div class="previews" id="col-preview"></div>
       </div>` : `<div class="empty">no matches</div>`}
       ${clip || stack ? `<div class="meta">${metaRows()}</div>` : ""}
       ${overlay()}
@@ -932,10 +929,41 @@ function render() {
         <span class="hoverable" data-act="mode-settings">${footerIcon("cog")}</span>
       </div>
     </footer>`;
+  fillPreviews(clips, clip);
   placeMenus();
   restoreFocus();
   scrollIntoPlace(savedScroll);
   document.querySelector(".menu-rows .hover")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+// Each clip's preview, built once and kept across renders. The panel is
+// rebuilt on every key press, and rebuilding a preview means parsing and
+// decoding its image again: a screenshot is megabytes, so a stack of them
+// made every step to it slow. Only which one is active changes.
+const previewCache = new Map();
+function fillPreviews(clips, clip) {
+  const col = document.getElementById("col-preview");
+  if (!col) return;
+  const nodes = clips.map((item) => {
+    let hit = previewCache.get(item.id);
+    if (!hit || hit.body !== item.body || hit.type !== item.type) {
+      const el = document.createElement("div");
+      el.dataset.act = "select-clip";
+      el.dataset.id = item.id;
+      el.innerHTML = renderBody(item);
+      hit = { el, body: item.body, type: item.type };
+      previewCache.set(item.id, hit);
+    }
+    hit.el.className = `preview ${item.id === clip?.id ? "active" : "not-active"}`;
+    return hit.el;
+  });
+  const end = document.createElement("div");
+  end.style.minHeight = "calc(100% - 2.5em)";
+  col.replaceChildren(...nodes, end);
+  // Forget deleted clips' previews.
+  if (previewCache.size > state.clips.length + 64) {
+    const live = new Set(state.clips.map((c) => c.id));
+    for (const id of previewCache.keys()) if (!live.has(id)) previewCache.delete(id);
+  }
 }
 function row(name, icon, selected, highlight, act, id) {
   const klass = highlight ? "highlight" : selected ? "selected" : "";
