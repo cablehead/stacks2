@@ -653,7 +653,9 @@ function textOk(clip, stack) {
   const q = state.filter.trim().toLowerCase();
   if (!q) return true;
   if (stack.name.toLowerCase().includes(q)) return true;
-  return (terse(clip) + " " + clip.body).toLowerCase().includes(q);
+  // An image's body is its encoded data, which would match almost any query.
+  const body = clip.type === "Image" ? "" : clip.body;
+  return (terse(clip) + " " + body).toLowerCase().includes(q);
 }
 function visibleClips(stack) {
   return clipsOf(stack.id).filter((clip) => typeOk(clip) && textOk(clip, stack));
