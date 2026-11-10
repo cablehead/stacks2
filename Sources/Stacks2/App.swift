@@ -192,8 +192,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let watch = PasteboardWatch(store: store)
                 appDelegate.pasteboard = watch
                 watch.start()
+                // Start hidden: a restart must not put the panel over what
+                // you're typing into. The hotkey shows it.
                 appDelegate.webView?.load(URLRequest(url: URL(string: "stacks://local/")!))
-                appDelegate.showPanel()
             }
         }
     }
