@@ -503,8 +503,15 @@ function stackRestore(frame) {
   model.stacks.push(clone(entry.snapshot.stack));
   model.deleted = model.deleted.filter((d) => d.frame_id !== target);
 }
+// Each frame applies once. A frame this page appended can also arrive on the
+// live stream, before or after the append returns: applied twice, a new clip
+// showed as two rows with one id, highlighted together.
 function applyFrame(frame) {
-  if (frame && frame.id) seen.add(frame.id);
+  if (!frame) return;
+  if (frame.id) {
+    if (seen.has(frame.id)) return;
+    seen.add(frame.id);
+  }
   switch (frame.topic) {
     case "stack.add": stackAdd(frame); break;
     case "stack.update": stackUpdate(frame); break;
