@@ -1674,6 +1674,15 @@ document.addEventListener("keydown", (event) => {
 });
 
 let liveChain = Promise.resolve();
+// As in the original Stacks: shown again after 30 seconds away, the panel
+// starts fresh, with no filter, no menu open and the top clip selected.
+const RESET_AFTER = 30 * 1000;
+let hiddenAt = 0;
+window.__panelHidden = () => { hiddenAt = Date.now(); };
+window.__panelShown = () => {
+  if (ready && hiddenAt && Date.now() - hiddenAt > RESET_AFTER) { resetNav(); render(); }
+  hiddenAt = 0;
+};
 window.__xsLive = (line, hidden) => {
   window.__xsHidden = hidden;
   liveChain = liveChain.then(() => ingest(line, hidden)).catch((err) => {

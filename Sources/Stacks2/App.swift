@@ -155,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let panel = appDelegate.window, panel.isVisible else { return }
                 if !panel.frame.contains(NSEvent.mouseLocation) {
                     panel.orderOut(nil)
+                    appDelegate.tellPage("__panelHidden")
                 }
             }
         }
@@ -222,11 +223,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let webView { window?.makeFirstResponder(webView) }
         window?.orderFrontRegardless()
         window?.makeKey()
+        tellPage("__panelShown")
+    }
+
+    /// Call a page hook with no arguments, if the page has it.
+    func tellPage(_ hook: String) {
+        webView?.evaluateJavaScript("window.\(hook) && window.\(hook)()", completionHandler: nil)
     }
 
     /// Hide the panel and give focus back to the app that was in front.
     func hidePanel() {
         window?.orderOut(nil)
+        tellPage("__panelHidden")
         // Only if Stacks2 did become active (launched, say): hand it back.
         if NSApp.isActive, let previousApp, !previousApp.isTerminated {
             previousApp.activate()
