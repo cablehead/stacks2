@@ -20,7 +20,7 @@
 # Each result frame:
 #   content  JSON {text, lines}: text is the lines joined with newlines,
 #            lines is ocr's own output, [{text, confidence, box}]
-#   meta     {hash, mime_type, lines, chars, ms}, or {hash, mime_type,
+#   meta     {hash, mime_type, text, lines, chars, ms}, or {hash, mime_type,
 #            error, ms} on failure. xs adds frame_id (the clip.add frame
 #            that was read) and actor_id.
 #
@@ -86,6 +86,7 @@ def handle [frame: record] {
   {text: $text, lines: $lines} | to json -r | .append $topic --meta {
     hash: $hash
     mime_type: $mime
+    text: $text
     lines: ($lines | length)
     chars: ($text | str length)
     ms: $ms
