@@ -266,6 +266,8 @@ const state = {
   pickerFilter: "",
   rename: "",
   edit: "",
+  // Set while the editor is writing a new clip: the stack it goes in.
+  newClipStack: "",
   undo: false,
   error: "",
   shortcut: window.stacksShortcut || { shift: true, ctrl: true, alt: false, command: false },
@@ -808,7 +810,7 @@ function modeName() {
     case "settings": return "Settings";
     case "stash": return "Stash clip to stack ...";
     case "rename": return "Rename stack";
-    case "edit": return "Edit clip";
+    case "edit": return state.newClipStack ? "New clip" : "Edit clip";
     default: return "";
   }
 }
@@ -853,7 +855,7 @@ function overlay() {
     return `<div class="rename-back"><div class="rename-card"><textarea id="rename-input" spellcheck="false">${esc(state.rename)}</textarea></div></div>`;
   }
   if (state.mode === "edit") {
-    return `<div class="rename-back"><div class="rename-card"><textarea id="edit-input" spellcheck="false">${esc(state.edit)}</textarea></div></div>`;
+    return `<div class="rename-back"><div class="rename-card"><textarea id="edit-input" spellcheck="false"${state.newClipStack ? ' placeholder="Enter clip..."' : ""}>${esc(state.edit)}</textarea></div></div>`;
   }
   if (state.mode === "settings") {
     const mod = (name, on) => `<button class="mod ${on ? "on" : ""}" data-act="shortcut" data-id="${name}">${esc(name)}</button>`;
@@ -1063,6 +1065,7 @@ function scrollIntoPlace(saved) {
 
 function openMode(mode) {
   state.mode = mode;
+  if (mode !== "edit") state.newClipStack = "";
   state.picker = 0;
   state.pickerFilter = "";
   if (mode === "filterType") state.picker = Math.max(0, FILTER_TYPES.indexOf(state.contentType));
@@ -1075,6 +1078,7 @@ function deactivate() {
   }
   state.mode = "main";
   state.pickerFilter = "";
+  state.newClipStack = "";
   focusRestore = null;
 }
 async function acceptPicker() {
@@ -1089,8 +1093,8 @@ async function acceptPicker() {
   }
   if (state.mode === "new") {
     if (item.name === "Stack") await addStack(false);
-    else if (item.name === "Clip") await addClip(state.stackId);
-    else await addStack(true);
+    else if (item.name === "Clip") { addClip(state.stackId); return; }
+    else { await addStack(true); return; }
     state.mode = "main";
     return;
   }
@@ -1113,12 +1117,19 @@ async function addStack(withClip) {
   const id = await putStack({ name: dn(), sort: "auto", layout: "flow" });
   state.stackId = id;
   state.focus = "stack";
-  if (withClip) await addClip(id);
+  if (withClip) addClip(id);
   else state.clipId = "";
 }
-async function addClip(stackId) {
+// A new clip opens the editor, empty, as the original Stacks did. Capture
+// saves it; Discard, or capturing nothing, saves nothing.
+function addClip(stackId) {
   if (!stackId) return;
-  const id = await putClip(stackId, "Text", "");
+  state.edit = "";
+  openMode("edit");
+  state.newClipStack = stackId;
+}
+async function captureNewClip(stackId, body) {
+  const id = await putClip(stackId, "Text", body);
   state.stackId = stackId;
   state.clipId = id;
   state.focus = "clip";
@@ -1201,7 +1212,11 @@ async function commitEdit() {
   const clip = currentClip();
   const input = document.getElementById("edit-input");
   const body = input ? input.value : state.edit;
-  if (clip && body.trim() && body !== clip.body) {
+  const newIn = state.newClipStack;
+  state.newClipStack = "";
+  if (newIn) {
+    if (body.trim()) await captureNewClip(newIn, body);
+  } else if (clip && body.trim() && body !== clip.body) {
     const frame = await append("clip.update", { id: clip.id }, body);
     remember(frame, body);
     apply(frame);
@@ -1253,6 +1268,7 @@ function resetWindow() {
 }
 function resetNav() {
   state.filter = "";
+  state.newClipStack = "";
   state.contentType = "All";
   state.mode = "main";
   state.picker = 0;
@@ -1420,7 +1436,6 @@ async function handleChords(event) {
   if (match(event, { meta: true, alt: true, shift: true, code: "KeyN" })) {
     event.preventDefault();
     await addStack(true);
-    state.mode = "main";
     render();
     return true;
   }
@@ -1432,8 +1447,8 @@ async function handleChords(event) {
   }
   if (match(event, { meta: true, shift: true, code: "KeyN" })) {
     event.preventDefault();
-    await addClip(state.stackId || (state.stacks[0] && state.stacks[0].id));
-    state.mode = "main";
+    if (state.mode === "edit" && state.newClipStack) deactivate();
+    else addClip(state.stackId || (state.stacks[0] && state.stacks[0].id));
     render();
     return true;
   }
