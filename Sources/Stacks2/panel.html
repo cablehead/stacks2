@@ -144,7 +144,19 @@
   }
   .meta-row { display: flex; width: 100%; }
   .meta-row .k { width: 16ch; flex: none; }
-  .meta-row .v { overflow-wrap: anywhere; }
+  .meta-row .v { overflow-wrap: anywhere; min-width: 0; }
+  .meta-row .v.line { display: flex; gap: 1ch; align-items: baseline; padding-right: 1ch; }
+  .meta-row .v.line .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .meta-row .v.line .dim, .meta-row .v.line svg { flex: none; }
+  .dim { opacity: 0.6; }
+  .shot { position: relative; width: fit-content; max-width: 100%; }
+  .shot .mark {
+    position: absolute;
+    outline: 2px solid #d9b44a;
+    background: rgba(217, 180, 74, 0.35);
+    border-radius: 3px;
+    pointer-events: none;
+  }
   .footer {
     flex: none;
     display: flex;
@@ -278,6 +290,14 @@ const state = {
 let model = { stacks: [], deleted: [] };
 let seen = new Set();
 const bodies = {};
+// The text the ocr actor (actors/ocr.nu) read in each image, by the image's
+// content hash: {text, error, frame}, frame being the hash of the ocr frame's
+// own content, which holds each line's box. Boxes are fetched only for an
+// image a filter matched, when it is shown.
+const ocr = {};
+const ocrBoxes = {};
+// An image's pixel size, by content hash, once its preview has decoded.
+const dims = {};
 const pending = {};
 let callSeq = 0;
 let ready = false;
@@ -503,6 +523,12 @@ function stackRestore(frame) {
   model.stacks.push(clone(entry.snapshot.stack));
   model.deleted = model.deleted.filter((d) => d.frame_id !== target);
 }
+function ocrAdd(frame) {
+  const meta = frame.meta || {};
+  if (!meta.hash) return;
+  const text = meta.error ? "" : (meta.text || "");
+  ocr[meta.hash] = { text, lower: text.toLowerCase(), error: meta.error || "", frame: frame.hash || "" };
+}
 // Each frame applies once. A frame this page appended can also arrive on the
 // live stream, before or after the append returns: applied twice, a new clip
 // showed as two rows with one id, highlighted together.
@@ -522,7 +548,9 @@ function applyFrame(frame) {
     case "clip.delete": clipDelete(frame); break;
     case "clip.restore": clipRestore(frame); break;
     case "stack.restore": stackRestore(frame); break;
-    default: break;
+    default:
+      if (frame.topic && frame.topic.startsWith("ocr.")) ocrAdd(frame);
+      break;
   }
 }
 function apply(frame) {
@@ -634,8 +662,33 @@ function clipsOf(stackId) {
   else clips.sort((a, b) => b.last - a.last || (a.id < b.id ? -1 : 1));
   return clips;
 }
+function query() { return state.filter.trim().toLowerCase(); }
+function ocrText(clip) {
+  const found = clip.hash && ocr[clip.hash];
+  return found ? found.text : "";
+}
+// The first line of an image's text that the filter matches.
+function ocrMatch(clip) {
+  const q = query();
+  if (!q || clip.type !== "Image") return null;
+  for (const line of ocrText(clip).split("\n")) {
+    const at = line.toLowerCase().indexOf(q);
+    if (at >= 0) return { line, at };
+  }
+  return null;
+}
+// A line too long for `max` characters starts nearer the match, so the
+// match is not cut off at the end.
+function lead(hit, max) {
+  const end = hit.at + state.filter.trim().length;
+  if (hit.line.length <= max || end < max) return hit.line;
+  return "…" + hit.line.slice(Math.max(1, end - (max - 1)));
+}
 function terse(clip) {
-  if (clip.type === "Image") return "Image";
+  if (clip.type === "Image") {
+    const hit = ocrMatch(clip);
+    return hit ? "Image: " + lead(hit, 8) : "Image";
+  }
   const line = clip.body.split("\n").map((l) => l.trim()).find((l) => l) || "Empty";
   return line.length > 80 ? line.slice(0, 78) + "…" : line;
 }
@@ -653,8 +706,13 @@ function textOk(clip, stack) {
   const q = state.filter.trim().toLowerCase();
   if (!q) return true;
   if (stack.name.toLowerCase().includes(q)) return true;
-  // An image's body is its encoded data, which would match almost any query.
-  const body = clip.type === "Image" ? "" : clip.body;
+  // An image's body is its encoded data, which would match almost any query:
+  // an image matches by the text read in it instead.
+  if (clip.type === "Image") {
+    const read = clip.hash && ocr[clip.hash];
+    return "image".includes(q) || (!!read && read.lower.includes(q));
+  }
+  const body = clip.body;
   return (terse(clip) + " " + body).toLowerCase().includes(q);
 }
 function visibleClips(stack) {
@@ -733,7 +791,7 @@ function renderMarkdown(text) {
 }
 function renderBody(clip) {
   if (clip.type === "Image") {
-    if (clip.body && clip.body.startsWith("data:")) return `<img alt="Image" src="${clip.body}">`;
+    if (clip.body && clip.body.startsWith("data:")) return `<div class="shot"><img alt="Image" src="${clip.body}"><div class="marks"></div></div>`;
     const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='360' height='140'><rect width='100%' height='100%' fill='%23222'/><circle cx='70' cy='60' r='24' fill='%23c5c6c7'/><path d='M0 120 L80 70 L140 110 L220 50 L360 130 V140 H0Z' fill='%234a4a4a'/></svg>`;
     return `<img alt="Image" src="data:image/svg+xml,${svg}">`;
   }
@@ -755,6 +813,7 @@ function metaRows() {
   if (focusedClip.type !== "Image" && focusedClip.type !== "Link") {
     rows += metaRow("Info", `${words} w . ${chars} c`);
   }
+  if (focusedClip.type === "Image") rows += imageRows(focusedClip);
   if (focusedClip.type === "Link") {
     rows += metaRow("Url", `${esc(focusedClip.body)} ${svg("external")}`, `data-act="open-link" data-id="${focusedClip.id}"`);
   }
@@ -766,8 +825,44 @@ function metaRows() {
   }
   return rows;
 }
-function metaRow(k, v, attrs = "") {
-  return `<div class="meta-row" ${attrs}><div class="k">${k}</div><div class="v">${v}</div></div>`;
+// A data: URL's decoded size in bytes.
+function dataBytes(url) {
+  const comma = url.indexOf(",");
+  if (comma < 0) return 0;
+  const b64 = url.slice(comma + 1);
+  const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.floor(b64.length * 3 / 4) - pad;
+}
+function fileSize(n) {
+  if (n < 1000) return n + " B";
+  if (n < 1000 * 1000) return Math.round(n / 1000) + " KB";
+  return (n / 1000 / 1000).toFixed(1) + " MB";
+}
+function imageRows(clip) {
+  const size = [];
+  const d = clip.hash && dims[clip.hash];
+  if (d) size.push(`${d.w} x ${d.h}`);
+  if (clip.body && clip.body.startsWith("data:")) size.push(fileSize(dataBytes(clip.body)));
+  const format = (clip.mime || "").replace(/^image\//, "").replace(/\+.*$/, "").toUpperCase();
+  if (format) size.push(format);
+  let rows = size.length ? metaRow("Size", esc(size.join(" . "))) : "";
+  const read = clip.hash && ocr[clip.hash];
+  if (!read) return rows + metaRow("Text", `<span class="dim">reading...</span>`);
+  if (!read.text.trim()) return rows + metaRow("Text", "none");
+  const hit = ocrMatch(clip);
+  const lines = read.text.split("\n");
+  const first = hit ? lead(hit, 16) : lines[0];
+  const note = hit ? "(match)" : lines.length > 1 ? `+${lines.length - 1} line${lines.length > 2 ? "s" : ""}` : "";
+  const v = `<span class="t">${esc(first)}</span>${note ? `<span class="dim">${note}</span>` : ""}${svg("copy")}`;
+  return rows + metaRow("Text", v, `data-act="copy-text" data-id="${clip.id}"`, "line");
+}
+// The info box alone, for when an image's size or text comes in.
+function refreshMeta() {
+  const box = shell.querySelector(".meta");
+  if (box) box.innerHTML = metaRows();
+}
+function metaRow(k, v, attrs = "", klass = "") {
+  return `<div class="meta-row" ${attrs}><div class="k">${k}</div><div class="v ${klass}">${v}</div></div>`;
 }
 
 function actions() {
@@ -965,6 +1060,7 @@ function fillPreviews(clips, clip) {
       previewCache.set(item.id, hit);
     }
     hit.el.className = `preview ${item.id === clip?.id ? "active" : "not-active"}`;
+    if (item.type === "Image") watchImage(hit.el, item);
     return hit.el;
   });
   const end = document.createElement("div");
@@ -975,6 +1071,99 @@ function fillPreviews(clips, clip) {
     const live = new Set(state.clips.map((c) => c.id));
     for (const id of previewCache.keys()) if (!live.has(id)) previewCache.delete(id);
   }
+}
+// Note an image's size once it decodes, and mark where the filter matched its
+// text. Called on every render for each shown image.
+function watchImage(el, clip) {
+  const img = el.querySelector(".shot img");
+  if (!img) return;
+  el.ocrClip = clip;
+  if (!img.dataset.watched) {
+    img.dataset.watched = "1";
+    img.addEventListener("load", () => {
+      if (clip.hash) dims[clip.hash] = { w: img.naturalWidth, h: img.naturalHeight };
+      if (el.isConnected && el.ocrClip && el.ocrClip.id === state.clipId) refreshMeta();
+      placeMarks(el);
+    });
+  }
+  if (img.complete && img.naturalWidth && clip.hash && !dims[clip.hash]) {
+    dims[clip.hash] = { w: img.naturalWidth, h: img.naturalHeight };
+  }
+  placeMarks(el);
+}
+async function loadBoxes(frameHash) {
+  if (Object.prototype.hasOwnProperty.call(ocrBoxes, frameHash)) return ocrBoxes[frameHash];
+  ocrBoxes[frameHash] = null;
+  try {
+    const res = await xsCall({ cmd: "cas", hash: frameHash });
+    const lines = JSON.parse((res && res.text) || "{}").lines;
+    ocrBoxes[frameHash] = Array.isArray(lines) ? lines : [];
+  } catch {
+    ocrBoxes[frameHash] = [];
+  }
+  return ocrBoxes[frameHash];
+}
+let measureCtx = null;
+function textWidth(text) {
+  if (!measureCtx) {
+    measureCtx = document.createElement("canvas").getContext("2d");
+    measureCtx.font = "100px -apple-system, Helvetica, Arial, sans-serif";
+  }
+  return measureCtx.measureText(text).width;
+}
+// Each match in a line's box. ocr boxes whole lines, so the match's part of
+// the line is found by the widths of the text before it and of the match.
+function matchBoxes(lines, q) {
+  const out = [];
+  for (const line of lines) {
+    const text = String(line.text || "");
+    const lower = text.toLowerCase();
+    const box = line.box;
+    if (!box) continue;
+    const total = textWidth(text) || 1;
+    for (let at = lower.indexOf(q); at >= 0; at = lower.indexOf(q, at + q.length)) {
+      const x0 = box.x + box.w * textWidth(text.slice(0, at)) / total;
+      const x1 = box.x + box.w * textWidth(text.slice(0, at + q.length)) / total;
+      const padX = box.h * 0.12;
+      const padY = box.h * 0.1;
+      out.push({ x: x0 - padX, y: box.y - padY, w: x1 - x0 + 2 * padX, h: box.h + 2 * padY });
+    }
+  }
+  return out;
+}
+function placeMarks(el) {
+  const clip = el.ocrClip;
+  const layer = el.querySelector(".shot .marks");
+  const img = el.querySelector(".shot img");
+  if (!clip || !layer || !img) return;
+  const q = query();
+  const read = clip.hash && ocr[clip.hash];
+  const want = q && read && read.frame && ocrMatch(clip) ? q : "";
+  if (!want) {
+    if (layer.dataset.q) { layer.dataset.q = ""; layer.replaceChildren(); }
+    return;
+  }
+  const lines = ocrBoxes[read.frame];
+  if (lines === undefined) {
+    loadBoxes(read.frame).then(() => { if (el.isConnected) placeMarks(el); });
+    return;
+  }
+  if (!lines || !img.naturalWidth) return;
+  const key = want + "|" + read.frame;
+  if (layer.dataset.q === key) return;
+  layer.dataset.q = key;
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  const pct = (n, of) => (Math.max(0, Math.min(of, n)) / of * 100) + "%";
+  layer.replaceChildren(...matchBoxes(lines, want).map((b) => {
+    const mark = document.createElement("div");
+    mark.className = "mark";
+    mark.style.left = pct(b.x, W);
+    mark.style.top = pct(b.y, H);
+    mark.style.width = pct(Math.min(b.w, W - Math.max(0, b.x)), W);
+    mark.style.height = pct(Math.min(b.h, H - Math.max(0, b.y)), H);
+    return mark;
+  }));
 }
 function row(name, icon, selected, highlight, act, id) {
   const klass = highlight ? "highlight" : selected ? "selected" : "";
@@ -1657,6 +1846,11 @@ shell.addEventListener("mousedown", (event) => {
       else if (act === "edit-save") await commitEdit();
       else if (act === "open-link") openLink(clipById(id));
       else if (act === "note-id") await noteId(id);
+      else if (act === "copy-text") {
+        const clip = clipById(id);
+        if (clip && ocrText(clip)) native({ cmd: "copy", text: ocrText(clip), hide: false });
+        return;
+      }
       else if (act === "shortcut") {
         state.shortcut[id] = !state.shortcut[id];
         native({ cmd: "shortcut", ...state.shortcut });
@@ -1720,6 +1914,12 @@ async function ingest(line, hidden) {
   if (!frame || seen.has(frame.id)) return;
   applyFrame(frame);
   if (frame.hash && (frame.topic === "clip.add" || frame.topic === "clip.update")) await ensureBody(frame.hash);
+  // Text read in an image: only the info box and the filter use it.
+  if (frame.topic.startsWith("ocr.") && !state.filter.trim()) {
+    syncFlat();
+    refreshMeta();
+    return;
+  }
   syncFlat();
   const meta = frame.meta || {};
   const landed = frame.topic === "clip.add" || frame.topic === "clip.update" || (frame.topic === "clip.patch" && meta.touch);
