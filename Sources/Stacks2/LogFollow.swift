@@ -69,13 +69,14 @@ final class LogFollow: @unchecked Sendable {
         }
     }
 
-    /// The page only folds stack and clip frames. Raw pasteboard frames stay out.
+    /// The page only folds stack and clip frames, and the text the ocr actor
+    /// read in each image. Raw pasteboard frames stay out.
     private static func forPage(_ line: String) -> Bool {
         guard
             let data = line.data(using: .utf8),
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let topic = obj["topic"] as? String
         else { return false }
-        return topic.hasPrefix("stack.") || topic.hasPrefix("clip.")
+        return topic.hasPrefix("stack.") || topic.hasPrefix("clip.") || topic.hasPrefix("ocr.")
     }
 }
