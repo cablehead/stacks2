@@ -962,7 +962,7 @@ function hotkeys() {
   }
   if (state.mode === "rename") return item("Capture", "rename-save", ["⌘", "⏎"]) + item("Discard", "back", ["ESC"]);
   if (state.mode === "edit") return item("Capture", "edit-save", ["⌘", "⏎"]) + item("Discard", "back", ["ESC"]);
-  if (state.mode === "markup") return item("Capture", "markup-save", ["⌘", "⏎"]) + item("Undo", "mk-undo", ["⌘", "Z"]) + item("Discard", "back", ["ESC"]);
+  if (state.mode === "markup") return item("Capture", "markup-save", ["⌘", "⏎"]) + (state.markup.selected != null ? item("Delete", "mk-delete", ["⌫"]) : "") + item("Undo", "mk-undo", ["⌘", "Z"]) + item("Discard", "back", ["ESC"]);
   if (state.mode === "settings") return item("Back", "back", ["ESC"]);
   return "";
 }
@@ -1521,8 +1521,19 @@ function drawMarkup() {
     ctx.lineWidth = 1 / s;
     ctx.strokeStyle = "#fff";
     ctx.strokeRect(x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad);
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#fff";
+    ctx.strokeStyle = "#000";
+    const r = 4 / s;
+    for (const [hx, hy] of markupHandles(sel)) { ctx.fillRect(hx - r, hy - r, 2 * r, 2 * r); ctx.strokeRect(hx - r, hy - r, 2 * r, 2 * r); }
     ctx.restore();
   }
+}
+// The points a selected box (its corners) or arrow (its ends) is resized by.
+function markupHandles(sh) {
+  if (sh.tool === "box") return [[sh.x0, sh.y0], [sh.x1, sh.y0], [sh.x0, sh.y1], [sh.x1, sh.y1]];
+  if (sh.tool === "arrow") return [[sh.x0, sh.y0], [sh.x1, sh.y1]];
+  return [];
 }
 // The box a mark covers, in image pixels: what Move picks it up by.
 function markupBounds(sh) {
@@ -1547,6 +1558,13 @@ function markupHit(x, y) {
 function markupSnapshot() {
   const m = state.markup;
   m.history.push(JSON.parse(JSON.stringify(m.shapes)));
+}
+function markupDelete() {
+  const m = state.markup;
+  if (m.selected == null) return;
+  markupSnapshot();
+  m.shapes.splice(m.selected, 1);
+  m.selected = null;
 }
 function markupUndo() {
   const m = state.markup;
@@ -1596,6 +1614,13 @@ function markupDown(event) {
   event.preventDefault();
   commitMarkupText();
   const [x, y] = markupPoint(event);
+  // A handle of the selected mark resizes it, whichever tool is picked.
+  const sel = m.shapes[m.selected];
+  if (sel) {
+    const near = 8 / s;
+    const k = markupHandles(sel).findIndex(([hx, hy]) => Math.abs(hx - x) <= near && Math.abs(hy - y) <= near);
+    if (k >= 0) { markupSnapshot(); markupDrag = { handle: k, moved: false }; return; }
+  }
   // A label opens for editing on a click with Text, or a double-click with Move.
   const hit = markupHit(x, y);
   if (hit != null && m.shapes[hit].tool === "text" && (m.tool === "text" || (m.tool === "move" && event.detail === 2))) {
@@ -1607,7 +1632,7 @@ function markupDown(event) {
   if (m.tool === "move") {
     m.selected = markupHit(x, y);
     if (m.selected != null) { markupSnapshot(); markupDrag = { move: true, x, y, moved: false }; }
-    drawMarkup();
+    render();
     return;
   }
   m.selected = null;
@@ -1627,6 +1652,14 @@ function markupDown(event) {
 function markupMove(event) {
   if (!markupDrag) return;
   const [x, y] = markupPoint(event);
+  if (markupDrag.handle != null) {
+    const sh = state.markup.shapes[state.markup.selected], k = markupDrag.handle;
+    if (sh.tool === "arrow") { if (k === 0) { sh.x0 = x; sh.y0 = y; } else { sh.x1 = x; sh.y1 = y; } }
+    else { if (k === 0 || k === 2) sh.x0 = x; else sh.x1 = x; if (k < 2) sh.y0 = y; else sh.y1 = y; }
+    markupDrag.moved = true;
+    drawMarkup();
+    return;
+  }
   if (markupDrag.move) {
     const sh = state.markup.shapes[state.markup.selected], dx = x - markupDrag.x, dy = y - markupDrag.y;
     if (sh.points) sh.points = sh.points.map(([px, py]) => [px + dx, py + dy]);
@@ -1642,8 +1675,10 @@ function markupMove(event) {
 function markupUp() {
   if (!markupDrag) return;
   // A click that moved nothing leaves no step to undo.
-  if (markupDrag.move) { if (!markupDrag.moved) state.markup.history.pop(); markupDrag = null; return; }
-  if (state.markup) { markupSnapshot(); state.markup.shapes.push(markupDrag); }
+  if (markupDrag.move || markupDrag.handle != null) { if (!markupDrag.moved) state.markup.history.pop(); markupDrag = null; render(); return; }
+  // A mark just drawn is selected, as in Preview: its handles resize it and
+  // Backspace deletes it, without switching to Move.
+  if (state.markup) { markupSnapshot(); state.markup.shapes.push(markupDrag); state.markup.selected = state.markup.shapes.length - 1; render(); }
   markupDrag = null;
   drawMarkup();
 }
@@ -1700,7 +1735,7 @@ function handleMarkupKey(event) {
   if (event.key === "Escape") { event.preventDefault(); deactivate(); render(); return; }
   if (event.metaKey && event.key === "Enter") { event.preventDefault(); if (!event.repeat) saveMarkup(); render(); return; }
   if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === "z") { event.preventDefault(); markupUndo(); drawMarkup(); return; }
-  if ((event.key === "Backspace" || event.key === "Delete") && m.selected != null) { event.preventDefault(); markupSnapshot(); m.shapes.splice(m.selected, 1); m.selected = null; drawMarkup(); return; }
+  if ((event.key === "Backspace" || event.key === "Delete") && m.selected != null) { event.preventDefault(); markupDelete(); render(); return; }
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const tool = MARKUP_TOOLS.find(([, , key]) => key.toLowerCase() === event.key.toLowerCase());
   if (tool) { event.preventDefault(); m.tool = tool[0]; if (tool[0] !== "move") m.selected = null; render(); return; }
@@ -2115,6 +2150,7 @@ shell.addEventListener("mousedown", (event) => {
       else if (act === "mk-tool") { commitMarkupText(); state.markup.tool = id; if (id !== "move") state.markup.selected = null; }
       else if (act === "mk-color") state.markup.color = MARKUP_COLORS[Number(id)];
       else if (act === "mk-undo") markupUndo();
+      else if (act === "mk-delete") markupDelete();
       else if (act === "open-link") openLink(clipById(id));
       else if (act === "note-id") await noteId(id);
       else if (act === "copy-text") {
