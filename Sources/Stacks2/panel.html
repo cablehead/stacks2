@@ -224,6 +224,7 @@
   .markup-card { display: flex; flex-direction: column; padding: 2ch; }
   .markup-tools .on { background: var(--hover); box-shadow: inset 0 0 0 1px var(--border); }
   .markup-tools .swatch { display: block; width: 1.1em; height: 1.1em; border-radius: 50%; }
+  .markup-tools .swatch.fill { border-radius: 3px; }
   .markup-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   #markup-canvas { cursor: crosshair; outline: none; }
   #markup-text { position: absolute; padding: 0 0.3ch; background: transparent; border: 1px dashed currentColor; line-height: 1.2; resize: none; overflow: hidden; white-space: pre; }
@@ -1472,7 +1473,7 @@ let markupImg = null;
 let markupDrag = null;
 function markupImage(clip) {
   if (!clip || !clip.body || !clip.body.startsWith("data:image/png;base64,")) return;
-  state.markup = { clipId: clip.id, src: clip.body, shapes: [], history: [], selected: null, tool: "arrow", color: MARKUP_COLORS[0], typing: null };
+  state.markup = { clipId: clip.id, src: clip.body, shapes: [], history: [], selected: null, tool: "arrow", color: MARKUP_COLORS[0], fill: null, typing: null };
   markupImg = new Image();
   markupImg.onload = () => { if (state.mode === "markup") drawMarkup(); };
   markupImg.src = clip.body;
@@ -1483,7 +1484,7 @@ function markupImage(clip) {
 function markupTop() {
   const m = state.markup;
   const tools = MARKUP_TOOLS.map(([id, name, key]) => `<button class="hoverable no-drag ${m.tool === id ? "on" : ""}" data-act="mk-tool" data-id="${id}">${name} ${keys([key])}</button>`).join("");
-  const colors = MARKUP_COLORS.map((c, i) => `<button class="hoverable no-drag ${m.color === c ? "on" : ""}" data-act="mk-color" data-id="${i}" title="${i + 1}"><span class="swatch" style="background:${c}"></span></button>`).join("");
+  const colors = MARKUP_COLORS.map((c, i) => `<button class="hoverable no-drag ${m.color === c ? "on" : ""}" data-act="mk-color" data-id="${i}" title="${i + 1}, Shift: fill"><span class="swatch ${m.fill === c ? "fill" : ""}" style="background:${c}"></span></button>`).join("");
   return `<div class="top markup-tools">${tools}<div class="filter-grow"></div>${colors}</div>`;
 }
 function markupOverlay() {
@@ -1567,11 +1568,24 @@ function markupSnapshot() {
   const m = state.markup;
   m.history.push(JSON.parse(JSON.stringify(m.shapes)));
 }
-// A colour picked while a mark is selected recolours it, too.
-function markupColor(color) {
+// A colour picked while a mark is selected recolours it, too. With Shift it
+// is the fill behind boxes and labels instead; the same fill again clears it.
+// The fill's colour shows as a square instead of a dot.
+function markupColor(color, fill) {
   const m = state.markup, sel = m.shapes[m.selected];
-  m.color = color;
-  if (sel && sel.color !== color) { markupSnapshot(); sel.color = color; }
+  if (!fill) {
+    m.color = color;
+    if (sel && sel.color !== color) { markupSnapshot(); sel.color = color; }
+    return;
+  }
+  m.fill = m.fill === color ? null : color;
+  if (sel && (sel.tool === "box" || sel.tool === "text")) { markupSnapshot(); sel.fill = m.fill; }
+}
+// Text on a fill of its own colour switches to black or white, whichever reads.
+function markupInk(sh) {
+  if (!sh.fill || sh.fill !== sh.color) return sh.color;
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(sh.fill.slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#111" : "#fff";
 }
 function markupDelete() {
   const m = state.markup;
@@ -1600,6 +1614,7 @@ function paintMarkup(ctx, shapes) {
       sh.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.stroke();
     } else if (sh.tool === "box") {
+      if (sh.fill) { ctx.fillStyle = sh.fill; ctx.fillRect(sh.x0, sh.y0, sh.x1 - sh.x0, sh.y1 - sh.y0); }
       ctx.strokeRect(sh.x0, sh.y0, sh.x1 - sh.x0, sh.y1 - sh.y0);
     } else if (sh.tool === "arrow") {
       const a = Math.atan2(sh.y1 - sh.y0, sh.x1 - sh.x0), head = sh.width * 4;
@@ -1609,6 +1624,12 @@ function paintMarkup(ctx, shapes) {
       ctx.lineTo(sh.x1 - head * Math.cos(a + 0.5), sh.y1 - head * Math.sin(a + 0.5));
       ctx.stroke();
     } else if (sh.tool === "text") {
+      if (sh.fill) {
+        const [x0, y0, x1, y1] = markupBounds(sh), pad = sh.size * 0.25;
+        ctx.fillStyle = sh.fill;
+        ctx.fillRect(x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad);
+      }
+      ctx.fillStyle = markupInk(sh);
       ctx.font = `600 ${sh.size}px -apple-system, sans-serif`;
       ctx.textBaseline = "top";
       sh.text.split("\n").forEach((line, i) => ctx.fillText(line, sh.x0, sh.y0 + i * sh.size * 1.2));
@@ -1660,7 +1681,7 @@ function markupDown(event) {
   const width = (m.tool === "highlight" ? 18 : 3) / s;
   markupDrag = m.tool === "pen" || m.tool === "highlight"
     ? { tool: m.tool, color: m.color, width, points: [[x, y]] }
-    : { tool: m.tool, color: m.color, width, x0: x, y0: y, x1: x, y1: y };
+    : { tool: m.tool, color: m.color, fill: m.tool === "box" ? m.fill : null, width, x0: x, y0: y, x1: x, y1: y };
   drawMarkup();
 }
 function markupMove(event) {
@@ -1713,7 +1734,7 @@ function commitMarkupText() {
   if (!m || !m.typing) return;
   const ty = m.typing;
   if (ty.value.trim()) {
-    const label = { tool: "text", color: m.color, text: ty.value, x0: ty.x, y0: ty.y, size: ty.size };
+    const label = { tool: "text", color: m.color, fill: ty.orig ? ty.orig.fill : m.fill, text: ty.value, x0: ty.x, y0: ty.y, size: ty.size };
     if (ty.orig) m.shapes.splice(ty.at, 0, label);
     else { markupSnapshot(); m.shapes.push(label); }
   }
@@ -1747,8 +1768,8 @@ function handleMarkupKey(event) {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const tool = MARKUP_TOOLS.find(([, , key]) => key.toLowerCase() === event.key.toLowerCase());
   if (tool) { event.preventDefault(); m.tool = tool[0]; if (tool[0] !== "select") m.selected = null; render(); return; }
-  const n = Number(event.key);
-  if (n >= 1 && n <= MARKUP_COLORS.length) { event.preventDefault(); markupColor(MARKUP_COLORS[n - 1]); render(); }
+  const n = /^Digit\d$/.test(event.code) ? Number(event.code.slice(5)) : 0;
+  if (n >= 1 && n <= MARKUP_COLORS.length) { event.preventDefault(); markupColor(MARKUP_COLORS[n - 1], event.shiftKey); render(); }
 }
 document.addEventListener("pointerdown", (event) => { if (event.target && event.target.id === "markup-canvas") markupDown(event); });
 window.addEventListener("pointermove", markupMove);
@@ -2156,7 +2177,7 @@ shell.addEventListener("mousedown", (event) => {
       else if (act === "edit-save") await commitEdit();
       else if (act === "markup-save") saveMarkup();
       else if (act === "mk-tool") { commitMarkupText(); state.markup.tool = id; if (id !== "select") state.markup.selected = null; }
-      else if (act === "mk-color") markupColor(MARKUP_COLORS[Number(id)]);
+      else if (act === "mk-color") markupColor(MARKUP_COLORS[Number(id)], event.shiftKey);
       else if (act === "mk-undo") markupUndo();
       else if (act === "mk-delete") markupDelete();
       else if (act === "open-link") openLink(clipById(id));
