@@ -221,12 +221,9 @@
     box-sizing: border-box;
   }
   .rename-card textarea { height: 100%; resize: none; }
-  .markup-card { display: flex; flex-direction: column; gap: 1ch; padding: 1ch 2ch 2ch; }
-  .markup-tools { display: flex; align-items: center; gap: 0.5ch; flex: none; }
-  .markup-tools button { padding: 0.2em 0.7ch; border-radius: 5px; }
-  .markup-tools button.on { background: var(--border); }
-  .markup-tools .swatch { width: 1.3em; height: 1.3em; border-radius: 50%; padding: 0; border: 2px solid transparent; }
-  .markup-tools .swatch.on { border-color: var(--text); }
+  .markup-card { display: flex; flex-direction: column; padding: 2ch; }
+  .markup-tools .on { background: var(--hover); box-shadow: inset 0 0 0 1px var(--border); }
+  .markup-tools .swatch { display: block; width: 1.1em; height: 1.1em; border-radius: 50%; }
   .markup-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   #markup-canvas { cursor: crosshair; outline: none; }
   #markup-text { position: absolute; width: auto; padding: 0 0.3ch; background: transparent; border: 1px dashed currentColor; font: inherit; }
@@ -934,6 +931,8 @@ function footerIcon(name) {
 }
 function footerLeft() {
   if (state.error) return `<div class="empty">${esc(state.error)}</div>`;
+  // The text editor names itself in the top row, where the filter bar was.
+  if (state.mode === "edit") return "<div></div>";
   if (state.mode !== "main") return `<div>${esc(modeName())}</div>`;
   const stack = currentStack();
   if (!stack) return "<div></div>";
@@ -1015,7 +1014,7 @@ function render() {
   const clip = currentClip();
   const stackWide = state.focus === "stack";
   shell.innerHTML = `
-    <div class="top">
+    ${state.mode === "markup" ? markupTop() : state.mode === "edit" ? `<div class="top"><div>${esc(modeName())}</div></div>` : `<div class="top">
       <div>&gt;</div>
       <div class="filter-grow no-drag"><input id="filter-input" spellcheck="false" placeholder="Type to filter..." value="${esc(state.filter)}"></div>
       <span class="vdiv"></span>
@@ -1023,7 +1022,7 @@ function render() {
       <span class="vdiv"></span>
       <button class="hoverable no-drag" id="trigger-new" data-act="mode-new">New ${keys(["⌘", "N"])}</button>
       ${state.undo ? `<span class="vdiv"></span><button class="hoverable no-drag" data-act="undo">Undo delete ${keys(["⌘", "Z"])}</button>` : ""}
-    </div>
+    </div>`}
     <div class="stage">
       ${stacks.length ? `<div class="cols">
         <div class="col ${stackWide ? "wide" : ""}" id="col-stacks">
@@ -1469,25 +1468,30 @@ function openImage(clip) {
 // the marked-up image into the clip (App.swift's saveImage); Discard keeps
 // the clip as it was. Marks are kept in image pixels, so the saved image is
 // full size whatever size the panel shows it at.
-const MARKUP_TOOLS = [["move", "Move", "V"], ["pen", "Pen", "P"], ["arrow", "Arrow", "A"], ["box", "Box", "B"], ["highlight", "Highlight", "H"], ["text", "Text", "T"]];
+const MARKUP_TOOLS = [["arrow", "Arrow", "A"], ["box", "Box", "B"], ["text", "Text", "T"], ["highlight", "Highlight", "H"], ["pen", "Pen", "P"], ["select", "Select", "S"]];
 const MARKUP_COLORS = ["#e5484d", "#f5d90a", "#3e63dd", "#30a46c"];
 let markupImg = null;
 let markupDrag = null;
 function markupImage(clip) {
   if (!clip || !clip.body || !clip.body.startsWith("data:image/png;base64,")) return;
-  state.markup = { clipId: clip.id, src: clip.body, shapes: [], history: [], selected: null, tool: "pen", color: MARKUP_COLORS[0], typing: null };
+  state.markup = { clipId: clip.id, src: clip.body, shapes: [], history: [], selected: null, tool: "arrow", color: MARKUP_COLORS[0], typing: null };
   markupImg = new Image();
   markupImg.onload = () => { if (state.mode === "markup") drawMarkup(); };
   markupImg.src = clip.body;
   openMode("markup");
 }
+// The top row, where the filter bar is outside the editor: the tools, then
+// the colours at the right, each a button like the others in the row.
+function markupTop() {
+  const m = state.markup;
+  const tools = MARKUP_TOOLS.map(([id, name, key]) => `<button class="hoverable no-drag ${m.tool === id ? "on" : ""}" data-act="mk-tool" data-id="${id}">${name} ${keys([key])}</button>`).join("");
+  const colors = MARKUP_COLORS.map((c, i) => `<button class="hoverable no-drag ${m.color === c ? "on" : ""}" data-act="mk-color" data-id="${i}" title="${i + 1}"><span class="swatch" style="background:${c}"></span></button>`).join("");
+  return `<div class="top markup-tools">${tools}<div class="filter-grow"></div>${colors}</div>`;
+}
 function markupOverlay() {
   const m = state.markup;
-  const tools = MARKUP_TOOLS.map(([id, name, key]) => `<button class="hoverable ${m.tool === id ? "on" : ""}" data-act="mk-tool" data-id="${id}">${name} ${keys([key])}</button>`).join("");
-  const colors = MARKUP_COLORS.map((c, i) => `<button class="swatch ${m.color === c ? "on" : ""}" data-act="mk-color" data-id="${i}" style="background:${c}"></button>`).join("");
   const typing = m.typing ? `<input id="markup-text" spellcheck="false" placeholder="Text" value="${esc(m.typing.value)}" style="left:${m.typing.left}px;top:${m.typing.top}px;color:${m.color};font:600 ${m.typing.size * markupScale()}px -apple-system, sans-serif;width:${markupTextWidth(m.typing.value, m.typing.size * markupScale())}px">` : "";
   return `<div class="rename-back"><div class="rename-card markup-card">
-    <div class="markup-tools">${tools}<span class="vdiv"></span>${colors}</div>
     <div class="markup-stage" id="markup-stage"><canvas id="markup-canvas" tabindex="0"></canvas>${typing}</div>
   </div></div>`;
 }
@@ -1559,6 +1563,12 @@ function markupSnapshot() {
   const m = state.markup;
   m.history.push(JSON.parse(JSON.stringify(m.shapes)));
 }
+// A colour picked while a mark is selected recolours it, too.
+function markupColor(color) {
+  const m = state.markup, sel = m.shapes[m.selected];
+  m.color = color;
+  if (sel && sel.color !== color) { markupSnapshot(); sel.color = color; }
+}
 function markupDelete() {
   const m = state.markup;
   if (m.selected == null) return;
@@ -1623,13 +1633,13 @@ function markupDown(event) {
   }
   // A label opens for editing on a click with Text, or a double-click with Move.
   const hit = markupHit(x, y);
-  if (hit != null && m.shapes[hit].tool === "text" && (m.tool === "text" || (m.tool === "move" && event.detail === 2))) {
+  if (hit != null && m.shapes[hit].tool === "text" && (m.tool === "text" || (m.tool === "select" && event.detail === 2))) {
     markupDrag = null;
     editMarkupText(hit);
     render();
     return;
   }
-  if (m.tool === "move") {
+  if (m.tool === "select") {
     m.selected = markupHit(x, y);
     if (m.selected != null) { markupSnapshot(); markupDrag = { move: true, x, y, moved: false }; }
     render();
@@ -1738,9 +1748,9 @@ function handleMarkupKey(event) {
   if ((event.key === "Backspace" || event.key === "Delete") && m.selected != null) { event.preventDefault(); markupDelete(); render(); return; }
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const tool = MARKUP_TOOLS.find(([, , key]) => key.toLowerCase() === event.key.toLowerCase());
-  if (tool) { event.preventDefault(); m.tool = tool[0]; if (tool[0] !== "move") m.selected = null; render(); return; }
+  if (tool) { event.preventDefault(); m.tool = tool[0]; if (tool[0] !== "select") m.selected = null; render(); return; }
   const n = Number(event.key);
-  if (n >= 1 && n <= MARKUP_COLORS.length) { event.preventDefault(); m.color = MARKUP_COLORS[n - 1]; render(); }
+  if (n >= 1 && n <= MARKUP_COLORS.length) { event.preventDefault(); markupColor(MARKUP_COLORS[n - 1]); render(); }
 }
 document.addEventListener("pointerdown", (event) => { if (event.target && event.target.id === "markup-canvas") markupDown(event); });
 window.addEventListener("pointermove", markupMove);
@@ -2147,8 +2157,8 @@ shell.addEventListener("mousedown", (event) => {
       else if (act === "rename-save") await commitRename();
       else if (act === "edit-save") await commitEdit();
       else if (act === "markup-save") saveMarkup();
-      else if (act === "mk-tool") { commitMarkupText(); state.markup.tool = id; if (id !== "move") state.markup.selected = null; }
-      else if (act === "mk-color") state.markup.color = MARKUP_COLORS[Number(id)];
+      else if (act === "mk-tool") { commitMarkupText(); state.markup.tool = id; if (id !== "select") state.markup.selected = null; }
+      else if (act === "mk-color") markupColor(MARKUP_COLORS[Number(id)]);
       else if (act === "mk-undo") markupUndo();
       else if (act === "mk-delete") markupDelete();
       else if (act === "open-link") openLink(clipById(id));
