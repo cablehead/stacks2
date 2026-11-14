@@ -213,7 +213,7 @@
     background: transparent;
   }
   .rename-card {
-    height: calc(100% - 2ch);
+    height: 100%;
     background: var(--panel);
     box-shadow: 0 0 6px var(--shadow);
     border-radius: 0.5rem;
@@ -931,8 +931,6 @@ function footerIcon(name) {
 }
 function footerLeft() {
   if (state.error) return `<div class="empty">${esc(state.error)}</div>`;
-  // The text editor names itself in the top row, where the filter bar was.
-  if (state.mode === "edit") return "<div></div>";
   if (state.mode !== "main") return `<div>${esc(modeName())}</div>`;
   const stack = currentStack();
   if (!stack) return "<div></div>";
@@ -1014,7 +1012,7 @@ function render() {
   const clip = currentClip();
   const stackWide = state.focus === "stack";
   shell.innerHTML = `
-    ${state.mode === "markup" ? markupTop() : state.mode === "edit" ? `<div class="top"><div>${esc(modeName())}</div></div>` : `<div class="top">
+    ${state.mode === "markup" ? markupTop() : state.mode === "edit" ? "" : `<div class="top">
       <div>&gt;</div>
       <div class="filter-grow no-drag"><input id="filter-input" spellcheck="false" placeholder="Type to filter..." value="${esc(state.filter)}"></div>
       <span class="vdiv"></span>
