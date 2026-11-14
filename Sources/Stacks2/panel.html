@@ -1202,7 +1202,10 @@ function restoreFocus() {
   else if (state.mode === "markup") target = document.getElementById("markup-text") || document.getElementById("markup-canvas");
   else if (state.mode === "main") target = document.getElementById("filter-input");
   if (!target) return;
+  const fresh = !focusRestore || focusRestore.id !== target.id;
   target.focus();
+  // A label opened for editing starts with the caret after its text.
+  if (target.id === "markup-text" && fresh) { target.setSelectionRange(target.value.length, target.value.length); return; }
   if (target.id === "edit-input" && editCaretToEnd) {
     editCaretToEnd = false;
     target.setSelectionRange(target.value.length, target.value.length);
@@ -1482,11 +1485,15 @@ function markupOverlay() {
   const m = state.markup;
   const tools = MARKUP_TOOLS.map(([id, name, key]) => `<button class="hoverable ${m.tool === id ? "on" : ""}" data-act="mk-tool" data-id="${id}">${name} ${keys([key])}</button>`).join("");
   const colors = MARKUP_COLORS.map((c, i) => `<button class="swatch ${m.color === c ? "on" : ""}" data-act="mk-color" data-id="${i}" style="background:${c}"></button>`).join("");
-  const typing = m.typing ? `<input id="markup-text" spellcheck="false" placeholder="Text" size="${Math.max(4, m.typing.value.length + 1)}" value="${esc(m.typing.value)}" style="left:${m.typing.left}px;top:${m.typing.top}px;color:${m.color}">` : "";
+  const typing = m.typing ? `<input id="markup-text" spellcheck="false" placeholder="Text" value="${esc(m.typing.value)}" style="left:${m.typing.left}px;top:${m.typing.top}px;color:${m.color};font:600 ${m.typing.size * markupScale()}px -apple-system, sans-serif;width:${markupTextWidth(m.typing.value, m.typing.size * markupScale())}px">` : "";
   return `<div class="rename-back"><div class="rename-card markup-card">
     <div class="markup-tools">${tools}<span class="vdiv"></span>${colors}</div>
     <div class="markup-stage" id="markup-stage"><canvas id="markup-canvas" tabindex="0"></canvas>${typing}</div>
   </div></div>`;
+}
+// The text box is as wide as its text (textWidth measures at 100px, regular).
+function markupTextWidth(text, px) {
+  return Math.round(textWidth(text || "Text") * px / 100 * 1.1 + px);
 }
 // How big the image shows: fit the stage, never more than twice its size.
 function markupScale() {
@@ -1589,6 +1596,14 @@ function markupDown(event) {
   event.preventDefault();
   commitMarkupText();
   const [x, y] = markupPoint(event);
+  // A label opens for editing on a click with Text, or a double-click with Move.
+  const hit = markupHit(x, y);
+  if (hit != null && m.shapes[hit].tool === "text" && (m.tool === "text" || (m.tool === "move" && event.detail === 2))) {
+    markupDrag = null;
+    editMarkupText(hit);
+    render();
+    return;
+  }
   if (m.tool === "move") {
     m.selected = markupHit(x, y);
     if (m.selected != null) { markupSnapshot(); markupDrag = { move: true, x, y, moved: false }; }
@@ -1599,7 +1614,7 @@ function markupDown(event) {
   if (m.tool === "text") {
     const canvas = document.getElementById("markup-canvas"), stage = document.getElementById("markup-stage");
     const r = canvas.getBoundingClientRect(), sr = stage.getBoundingClientRect();
-    m.typing = { x, y, value: "", left: event.clientX - sr.left, top: event.clientY - sr.top, size: 18 / s };
+    m.typing = { x, y, value: "", left: event.clientX - sr.left, top: event.clientY - sr.top, size: 18 / s, orig: null, at: -1 };
     render();
     return;
   }
@@ -1632,13 +1647,33 @@ function markupUp() {
   markupDrag = null;
   drawMarkup();
 }
+// Editing a label takes it off the image into the text box, in place; the
+// step to undo is taken now, so Cmd+Z after the edit brings the old text back.
+function editMarkupText(i) {
+  const m = state.markup, sh = m.shapes[i], s = markupScale();
+  const cr = document.getElementById("markup-canvas").getBoundingClientRect();
+  const sr = document.getElementById("markup-stage").getBoundingClientRect();
+  markupSnapshot();
+  m.shapes.splice(i, 1);
+  m.selected = null;
+  m.color = sh.color;
+  m.typing = { x: sh.x0, y: sh.y0, value: sh.text, left: cr.left - sr.left + sh.x0 * s, top: cr.top - sr.top + sh.y0 * s, size: sh.size, orig: sh, at: i };
+}
 function commitMarkupText() {
   const m = state.markup;
   if (!m || !m.typing) return;
-  if (m.typing.value.trim()) {
-    markupSnapshot();
-    m.shapes.push({ tool: "text", color: m.color, text: m.typing.value, x0: m.typing.x, y0: m.typing.y, size: m.typing.size });
+  const ty = m.typing;
+  if (ty.value.trim()) {
+    const label = { tool: "text", color: m.color, text: ty.value, x0: ty.x, y0: ty.y, size: ty.size };
+    if (ty.orig) m.shapes.splice(ty.at, 0, label);
+    else { markupSnapshot(); m.shapes.push(label); }
   }
+  m.typing = null;
+}
+// Esc in the text box: a new label is dropped, an edited one goes back as it was.
+function cancelMarkupText() {
+  const m = state.markup, ty = m.typing;
+  if (ty && ty.orig) { m.shapes.splice(ty.at, 0, ty.orig); m.history.pop(); }
   m.typing = null;
 }
 function saveMarkup() {
@@ -1659,7 +1694,7 @@ function handleMarkupKey(event) {
   if (event.target && event.target.id === "markup-text") {
     if (event.metaKey && event.key === "Enter") { event.preventDefault(); if (!event.repeat) saveMarkup(); render(); return; }
     if (event.key === "Enter") { event.preventDefault(); commitMarkupText(); drawMarkup(); render(); return; }
-    if (event.key === "Escape") { event.preventDefault(); m.typing = null; render(); return; }
+    if (event.key === "Escape") { event.preventDefault(); cancelMarkupText(); render(); return; }
     return;
   }
   if (event.key === "Escape") { event.preventDefault(); deactivate(); render(); return; }
@@ -2113,7 +2148,7 @@ shell.addEventListener("input", (event) => {
     return;
   } else if (id === "markup-text") {
     if (state.markup && state.markup.typing) state.markup.typing.value = event.target.value;
-    event.target.size = Math.max(4, event.target.value.length + 1);
+    if (state.markup && state.markup.typing) event.target.style.width = markupTextWidth(event.target.value, state.markup.typing.size * markupScale()) + "px";
     return;
   } else return;
   render();
