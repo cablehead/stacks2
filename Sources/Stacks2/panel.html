@@ -229,7 +229,7 @@
   .markup-tools .swatch.on { border-color: var(--text); }
   .markup-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   #markup-canvas { cursor: crosshair; outline: none; }
-  #markup-text { position: absolute; min-width: 12ch; background: transparent; border: 1px dashed currentColor; font: inherit; }
+  #markup-text { position: absolute; width: auto; padding: 0 0.3ch; background: transparent; border: 1px dashed currentColor; font: inherit; }
   .icon-btn {
     width: 1.5em;
     height: 1.5em;
@@ -1466,13 +1466,13 @@ function openImage(clip) {
 // the marked-up image into the clip (App.swift's saveImage); Discard keeps
 // the clip as it was. Marks are kept in image pixels, so the saved image is
 // full size whatever size the panel shows it at.
-const MARKUP_TOOLS = [["pen", "Pen", "P"], ["arrow", "Arrow", "A"], ["box", "Box", "B"], ["highlight", "Highlight", "H"], ["text", "Text", "T"]];
+const MARKUP_TOOLS = [["move", "Move", "V"], ["pen", "Pen", "P"], ["arrow", "Arrow", "A"], ["box", "Box", "B"], ["highlight", "Highlight", "H"], ["text", "Text", "T"]];
 const MARKUP_COLORS = ["#e5484d", "#f5d90a", "#3e63dd", "#30a46c"];
 let markupImg = null;
 let markupDrag = null;
 function markupImage(clip) {
   if (!clip || !clip.body || !clip.body.startsWith("data:image/png;base64,")) return;
-  state.markup = { clipId: clip.id, src: clip.body, shapes: [], tool: "pen", color: MARKUP_COLORS[0], typing: null };
+  state.markup = { clipId: clip.id, src: clip.body, shapes: [], history: [], selected: null, tool: "pen", color: MARKUP_COLORS[0], typing: null };
   markupImg = new Image();
   markupImg.onload = () => { if (state.mode === "markup") drawMarkup(); };
   markupImg.src = clip.body;
@@ -1482,7 +1482,7 @@ function markupOverlay() {
   const m = state.markup;
   const tools = MARKUP_TOOLS.map(([id, name, key]) => `<button class="hoverable ${m.tool === id ? "on" : ""}" data-act="mk-tool" data-id="${id}">${name} ${keys([key])}</button>`).join("");
   const colors = MARKUP_COLORS.map((c, i) => `<button class="swatch ${m.color === c ? "on" : ""}" data-act="mk-color" data-id="${i}" style="background:${c}"></button>`).join("");
-  const typing = m.typing ? `<input id="markup-text" spellcheck="false" placeholder="Text" value="${esc(m.typing.value)}" style="left:${m.typing.left}px;top:${m.typing.top}px;color:${m.color}">` : "";
+  const typing = m.typing ? `<input id="markup-text" spellcheck="false" placeholder="Text" size="${Math.max(4, m.typing.value.length + 1)}" value="${esc(m.typing.value)}" style="left:${m.typing.left}px;top:${m.typing.top}px;color:${m.color}">` : "";
   return `<div class="rename-back"><div class="rename-card markup-card">
     <div class="markup-tools">${tools}<span class="vdiv"></span>${colors}</div>
     <div class="markup-stage" id="markup-stage"><canvas id="markup-canvas" tabindex="0"></canvas>${typing}</div>
@@ -1504,7 +1504,48 @@ function drawMarkup() {
   if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
-  paintMarkup(ctx, state.markup.shapes.concat(markupDrag ? [markupDrag] : []));
+  const m = state.markup;
+  paintMarkup(ctx, m.shapes.concat(markupDrag && !markupDrag.move ? [markupDrag] : []));
+  const sel = m.shapes[m.selected];
+  if (sel) {
+    const [x0, y0, x1, y1] = markupBounds(sel), pad = 4 / s;
+    ctx.save();
+    ctx.setLineDash([4 / s, 4 / s]);
+    ctx.lineWidth = 1 / s;
+    ctx.strokeStyle = "#fff";
+    ctx.strokeRect(x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad);
+    ctx.restore();
+  }
+}
+// The box a mark covers, in image pixels: what Move picks it up by.
+function markupBounds(sh) {
+  // textWidth measures regular weight at 100px; the mark is semibold.
+  if (sh.tool === "text") return [sh.x0, sh.y0, sh.x0 + textWidth(sh.text) * sh.size / 100 * 1.08, sh.y0 + sh.size * 1.2];
+  const xs = sh.points ? sh.points.map((p) => p[0]) : [sh.x0, sh.x1];
+  const ys = sh.points ? sh.points.map((p) => p[1]) : [sh.y0, sh.y1];
+  const w = sh.tool === "arrow" ? sh.width * 4 : sh.width / 2;
+  return [Math.min(...xs) - w, Math.min(...ys) - w, Math.max(...xs) + w, Math.max(...ys) + w];
+}
+// The topmost mark under a point, or null.
+function markupHit(x, y) {
+  const slack = 6 / markupScale();
+  const shapes = state.markup.shapes;
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    const [x0, y0, x1, y1] = markupBounds(shapes[i]);
+    if (x >= x0 - slack && x <= x1 + slack && y >= y0 - slack && y <= y1 + slack) return i;
+  }
+  return null;
+}
+// Every change to the marks keeps the marks before it, for Cmd+Z.
+function markupSnapshot() {
+  const m = state.markup;
+  m.history.push(JSON.parse(JSON.stringify(m.shapes)));
+}
+function markupUndo() {
+  const m = state.markup;
+  if (!m.history.length) return;
+  m.shapes = m.history.pop();
+  m.selected = null;
 }
 function paintMarkup(ctx, shapes) {
   ctx.clearRect(0, 0, markupImg.naturalWidth, markupImg.naturalHeight);
@@ -1548,6 +1589,13 @@ function markupDown(event) {
   event.preventDefault();
   commitMarkupText();
   const [x, y] = markupPoint(event);
+  if (m.tool === "move") {
+    m.selected = markupHit(x, y);
+    if (m.selected != null) { markupSnapshot(); markupDrag = { move: true, x, y, moved: false }; }
+    drawMarkup();
+    return;
+  }
+  m.selected = null;
   if (m.tool === "text") {
     const canvas = document.getElementById("markup-canvas"), stage = document.getElementById("markup-stage");
     const r = canvas.getBoundingClientRect(), sr = stage.getBoundingClientRect();
@@ -1564,20 +1612,33 @@ function markupDown(event) {
 function markupMove(event) {
   if (!markupDrag) return;
   const [x, y] = markupPoint(event);
+  if (markupDrag.move) {
+    const sh = state.markup.shapes[state.markup.selected], dx = x - markupDrag.x, dy = y - markupDrag.y;
+    if (sh.points) sh.points = sh.points.map(([px, py]) => [px + dx, py + dy]);
+    else { sh.x0 += dx; sh.y0 += dy; if (sh.x1 != null) { sh.x1 += dx; sh.y1 += dy; } }
+    markupDrag.x = x; markupDrag.y = y; markupDrag.moved = true;
+    drawMarkup();
+    return;
+  }
   if (markupDrag.points) markupDrag.points.push([x, y]);
   else { markupDrag.x1 = x; markupDrag.y1 = y; }
   drawMarkup();
 }
 function markupUp() {
   if (!markupDrag) return;
-  if (state.markup) state.markup.shapes.push(markupDrag);
+  // A click that moved nothing leaves no step to undo.
+  if (markupDrag.move) { if (!markupDrag.moved) state.markup.history.pop(); markupDrag = null; return; }
+  if (state.markup) { markupSnapshot(); state.markup.shapes.push(markupDrag); }
   markupDrag = null;
   drawMarkup();
 }
 function commitMarkupText() {
   const m = state.markup;
   if (!m || !m.typing) return;
-  if (m.typing.value.trim()) m.shapes.push({ tool: "text", color: m.color, text: m.typing.value, x0: m.typing.x, y0: m.typing.y, size: m.typing.size });
+  if (m.typing.value.trim()) {
+    markupSnapshot();
+    m.shapes.push({ tool: "text", color: m.color, text: m.typing.value, x0: m.typing.x, y0: m.typing.y, size: m.typing.size });
+  }
   m.typing = null;
 }
 function saveMarkup() {
@@ -1603,10 +1664,11 @@ function handleMarkupKey(event) {
   }
   if (event.key === "Escape") { event.preventDefault(); deactivate(); render(); return; }
   if (event.metaKey && event.key === "Enter") { event.preventDefault(); if (!event.repeat) saveMarkup(); render(); return; }
-  if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === "z") { event.preventDefault(); m.shapes.pop(); drawMarkup(); return; }
+  if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === "z") { event.preventDefault(); markupUndo(); drawMarkup(); return; }
+  if ((event.key === "Backspace" || event.key === "Delete") && m.selected != null) { event.preventDefault(); markupSnapshot(); m.shapes.splice(m.selected, 1); m.selected = null; drawMarkup(); return; }
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const tool = MARKUP_TOOLS.find(([, , key]) => key.toLowerCase() === event.key.toLowerCase());
-  if (tool) { event.preventDefault(); m.tool = tool[0]; render(); return; }
+  if (tool) { event.preventDefault(); m.tool = tool[0]; if (tool[0] !== "move") m.selected = null; render(); return; }
   const n = Number(event.key);
   if (n >= 1 && n <= MARKUP_COLORS.length) { event.preventDefault(); m.color = MARKUP_COLORS[n - 1]; render(); }
 }
@@ -2015,9 +2077,9 @@ shell.addEventListener("mousedown", (event) => {
       else if (act === "rename-save") await commitRename();
       else if (act === "edit-save") await commitEdit();
       else if (act === "markup-save") saveMarkup();
-      else if (act === "mk-tool") { commitMarkupText(); state.markup.tool = id; }
+      else if (act === "mk-tool") { commitMarkupText(); state.markup.tool = id; if (id !== "move") state.markup.selected = null; }
       else if (act === "mk-color") state.markup.color = MARKUP_COLORS[Number(id)];
-      else if (act === "mk-undo") state.markup.shapes.pop();
+      else if (act === "mk-undo") markupUndo();
       else if (act === "open-link") openLink(clipById(id));
       else if (act === "note-id") await noteId(id);
       else if (act === "copy-text") {
@@ -2051,6 +2113,7 @@ shell.addEventListener("input", (event) => {
     return;
   } else if (id === "markup-text") {
     if (state.markup && state.markup.typing) state.markup.typing.value = event.target.value;
+    event.target.size = Math.max(4, event.target.value.length + 1);
     return;
   } else return;
   render();
