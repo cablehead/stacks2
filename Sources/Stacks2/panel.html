@@ -226,7 +226,7 @@
   .markup-tools .swatch { display: block; width: 1.1em; height: 1.1em; border-radius: 50%; }
   .markup-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   #markup-canvas { cursor: crosshair; outline: none; }
-  #markup-text { position: absolute; width: auto; padding: 0 0.3ch; background: transparent; border: 1px dashed currentColor; font: inherit; }
+  #markup-text { position: absolute; padding: 0 0.3ch; background: transparent; border: 1px dashed currentColor; line-height: 1.2; resize: none; overflow: hidden; white-space: pre; }
   .icon-btn {
     width: 1.5em;
     height: 1.5em;
@@ -1488,14 +1488,17 @@ function markupTop() {
 }
 function markupOverlay() {
   const m = state.markup;
-  const typing = m.typing ? `<input id="markup-text" spellcheck="false" placeholder="Text" value="${esc(m.typing.value)}" style="left:${m.typing.left}px;top:${m.typing.top}px;color:${m.color};font:600 ${m.typing.size * markupScale()}px -apple-system, sans-serif;width:${markupTextWidth(m.typing.value, m.typing.size * markupScale())}px">` : "";
+  const typing = m.typing ? `<textarea id="markup-text" spellcheck="false" placeholder="Text" style="left:${m.typing.left}px;top:${m.typing.top}px;color:${m.color};font:600 ${m.typing.size * markupScale()}px -apple-system, sans-serif;${markupTextSize(m.typing.value, m.typing.size * markupScale())}">${esc(m.typing.value)}</textarea>` : "";
   return `<div class="rename-back"><div class="rename-card markup-card">
     <div class="markup-stage" id="markup-stage"><canvas id="markup-canvas" tabindex="0"></canvas>${typing}</div>
   </div></div>`;
 }
-// The text box is as wide as its text (textWidth measures at 100px, regular).
-function markupTextWidth(text, px) {
-  return Math.round(textWidth(text || "Text") * px / 100 * 1.1 + px);
+// The text box is as big as its text: its widest line, and one row a line
+// (textWidth measures at 100px, regular weight).
+function markupTextSize(text, px) {
+  const lines = (text || "Text").split("\n");
+  const w = Math.max(...lines.map((line) => textWidth(line || " ")));
+  return `width:${Math.round(w * px / 100 * 1.1 + px)}px;height:${Math.round(lines.length * px * 1.2 + 2)}px`;
 }
 // How big the image shows: fit the stage, never more than twice its size.
 function markupScale() {
@@ -1540,7 +1543,10 @@ function markupHandles(sh) {
 // The box a mark covers, in image pixels: what Move picks it up by.
 function markupBounds(sh) {
   // textWidth measures regular weight at 100px; the mark is semibold.
-  if (sh.tool === "text") return [sh.x0, sh.y0, sh.x0 + textWidth(sh.text) * sh.size / 100 * 1.08, sh.y0 + sh.size * 1.2];
+  if (sh.tool === "text") {
+    const lines = sh.text.split("\n");
+    return [sh.x0, sh.y0, sh.x0 + Math.max(...lines.map(textWidth)) * sh.size / 100 * 1.08, sh.y0 + lines.length * sh.size * 1.2];
+  }
   const xs = sh.points ? sh.points.map((p) => p[0]) : [sh.x0, sh.x1];
   const ys = sh.points ? sh.points.map((p) => p[1]) : [sh.y0, sh.y1];
   const w = sh.tool === "arrow" ? sh.width * 4 : sh.width / 2;
@@ -1605,7 +1611,7 @@ function paintMarkup(ctx, shapes) {
     } else if (sh.tool === "text") {
       ctx.font = `600 ${sh.size}px -apple-system, sans-serif`;
       ctx.textBaseline = "top";
-      ctx.fillText(sh.text, sh.x0, sh.y0);
+      sh.text.split("\n").forEach((line, i) => ctx.fillText(line, sh.x0, sh.y0 + i * sh.size * 1.2));
     }
     ctx.restore();
   }
@@ -1713,12 +1719,6 @@ function commitMarkupText() {
   }
   m.typing = null;
 }
-// Esc in the text box: a new label is dropped, an edited one goes back as it was.
-function cancelMarkupText() {
-  const m = state.markup, ty = m.typing;
-  if (ty && ty.orig) { m.shapes.splice(ty.at, 0, ty.orig); m.history.pop(); }
-  m.typing = null;
-}
 function saveMarkup() {
   const m = state.markup;
   if (!m || !markupImg || !markupImg.naturalWidth) return;
@@ -1736,8 +1736,8 @@ function handleMarkupKey(event) {
   const m = state.markup;
   if (event.target && event.target.id === "markup-text") {
     if (event.metaKey && event.key === "Enter") { event.preventDefault(); if (!event.repeat) saveMarkup(); render(); return; }
-    if (event.key === "Enter") { event.preventDefault(); commitMarkupText(); drawMarkup(); render(); return; }
-    if (event.key === "Escape") { event.preventDefault(); cancelMarkupText(); render(); return; }
+    // As in a text editor: Enter is a new line, Esc keeps the label.
+    if (event.key === "Escape") { event.preventDefault(); commitMarkupText(); render(); return; }
     return;
   }
   if (event.key === "Escape") { event.preventDefault(); deactivate(); render(); return; }
@@ -2192,7 +2192,7 @@ shell.addEventListener("input", (event) => {
     return;
   } else if (id === "markup-text") {
     if (state.markup && state.markup.typing) state.markup.typing.value = event.target.value;
-    if (state.markup && state.markup.typing) event.target.style.width = markupTextWidth(event.target.value, state.markup.typing.size * markupScale()) + "px";
+    if (state.markup && state.markup.typing) event.target.style.cssText += ";" + markupTextSize(event.target.value, state.markup.typing.size * markupScale());
     return;
   } else return;
   render();
