@@ -308,7 +308,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let image = body["image"] as? String, let png = Self.pngData(fromDataURL: image) {
                 openInPreview(png, hash: body["hash"] as? String ?? "")
             }
-                case "follow":
+        case "saveImage":
+            // A marked-up image from the panel's editor, saved into its clip
+            // as the PNG's bytes (the page can only append text).
+            if let image = body["image"] as? String, let png = Self.pngData(fromDataURL: image),
+               let id = body["id"] as? String, !id.isEmpty,
+               let socket = xs.socketPath(), !socket.isEmpty {
+                let meta = XsJSON.object(["id": id])
+                Task.detached {
+                    let json = XsHTTP.post(socket: socket, topic: "clip.update", metaJSON: meta, body: png)
+                    if json.contains("\"error\"") { NSLog("stacks2 saveImage: \(json)") }
+                }
+            }
+        case "follow":
             let after = body["after"] as? String ?? ""
             guard let socket = xs.socketPath(), !socket.isEmpty else { return }
             if follow == nil { follow = LogFollow() }
