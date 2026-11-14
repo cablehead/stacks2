@@ -1502,7 +1502,13 @@ function markupFillShown() {
 }
 function markupOverlay() {
   const m = state.markup;
-  const typing = m.typing ? `<textarea id="markup-text" spellcheck="false" placeholder="Text" style="left:${m.typing.left}px;top:${m.typing.top}px;color:${m.color};font:600 ${m.typing.size * markupScale()}px -apple-system, sans-serif;${markupTextSize(m.typing.value, m.typing.size * markupScale())}">${esc(m.typing.value)}</textarea>` : "";
+  // The text box looks like the label it makes: its fill behind, its ink.
+  let typing = "";
+  if (m.typing) {
+    const ty = m.typing, px = ty.size * markupScale(), fill = ty.orig ? ty.orig.fill : m.fill, pad = fill ? Math.round(px * 0.25) : 0;
+    const look = fill ? `background:${fill};color:${markupInk({ color: m.color, fill })};padding:${pad}px;border:0;` : `color:${m.color};`;
+    typing = `<textarea id="markup-text" spellcheck="false" placeholder="Text" style="left:${ty.left - pad}px;top:${ty.top - pad}px;${look}font:600 ${px}px -apple-system, sans-serif;box-sizing:content-box;${markupTextSize(ty.value, px)}">${esc(ty.value)}</textarea>`;
+  }
   return `<div class="rename-back"><div class="rename-card markup-card">
     <div class="markup-stage" id="markup-stage"><canvas id="markup-canvas" tabindex="0"></canvas>${typing}</div>
   </div></div>`;
