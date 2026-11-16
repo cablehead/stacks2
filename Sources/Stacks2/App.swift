@@ -116,6 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let xs = XsStore()
     private var pasteboard: PasteboardWatch?
     private var follow: LogFollow?
+    /// SIGTERM quits as Cmd+Q does, so xs stops cleanly (xs.stopping, flush).
+    private var terminate: DispatchSourceSignal?
     var shortcut = Shortcut.load()
     var window: NSWindow?
     var webView: WKWebView?
@@ -125,6 +127,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var previousApp: NSRunningApplication?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        signal(SIGTERM, SIG_IGN)
+        let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        term.setEventHandler { NSApp.terminate(nil) }
+        term.resume()
+        terminate = term
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(handler, forURLScheme: "stacks")
         config.userContentController.add(bridge, name: "stacks")

@@ -2,3 +2,4 @@
 .swiftpm/
 .bin/
 xs-ffi/target/
+dist/
