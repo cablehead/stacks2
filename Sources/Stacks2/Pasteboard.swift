@@ -31,20 +31,47 @@ final class PasteboardWatch {
         timer = nil
     }
 
+    /// Markers apps put on what they copy (nspasteboard.org). A concealed copy
+    /// (a password) is recorded as an ephemeral frame, with the record in its
+    /// meta: it is never stored, and only live followers (the clipboard actor,
+    /// the panel) see it. A transient copy is not recorded at all.
+    static let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    static let transient = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+
+    /// Stacks2 copying a concealed clip back: that change is not recorded
+    /// again, since the clip is already in the panel.
+    func skip(_ change: Int) {
+        changeCount = change
+    }
+
     private func tick() {
         let pasteboard = NSPasteboard.general
         let current = pasteboard.changeCount
         guard current != changeCount else { return }
-        let body = Self.record(pasteboard, change: current)
-        changeCount = pasteboard.changeCount
-        guard let body, store.isOpen else { return }
+        changeCount = current
+        let types = Set((pasteboard.pasteboardItems ?? []).flatMap(\.types))
+        if types.contains(Self.transient) { return }
+        let concealed = types.contains(Self.concealed)
+        guard let body = Self.record(pasteboard, change: current), store.isOpen else { return }
+        var meta = "{}"
+        var stored = body
+        if concealed,
+           let record = try? JSONSerialization.jsonObject(with: Data(body.utf8)),
+           let data = try? JSONSerialization.data(withJSONObject: ["concealed": true, "record": record]),
+           let text = String(data: data, encoding: .utf8) {
+            meta = text
+            stored = ""
+        } else if concealed {
+            return
+        }
         let req = XsRequest(
             id: "",
             cmd: "append",
             topic: "pb.recv",
-            metaJSON: "{}",
-            body: body,
-            hash: ""
+            metaJSON: meta,
+            body: stored,
+            hash: "",
+            query: concealed ? "ttl=ephemeral" : ""
         )
         Task.detached {
             let json = Xs.call(req)

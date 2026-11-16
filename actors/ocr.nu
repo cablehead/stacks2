@@ -54,6 +54,9 @@ def handle [frame: record] {
   let meta = $frame.meta? | default {}
   let mime = $meta.mime_type? | default ""
   let hash = $frame.hash? | default ""
+  # A concealed clip (a password manager's copy) has no hash, its image is
+  # in meta: its text is never read, since that would be stored.
+  if ($meta.concealed? | default false) == true { return }
   if not (is-image $mime) or ($hash | is-empty) { return }
 
   let topic = ocr-topic $hash

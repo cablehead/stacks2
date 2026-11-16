@@ -401,8 +401,19 @@ function xsCall(cmd) {
     native({ id, ...cmd });
   });
 }
-function append(topic, meta, body) {
-  return xsCall({ cmd: "append", topic, meta, body: body ?? "" });
+function append(topic, meta, body, ttl) {
+  return xsCall({ cmd: "append", topic, meta, body: body ?? "", ...(ttl ? { ttl } : {}) });
+}
+// A concealed clip (a password manager's copy) is ephemeral: never stored,
+// its content in meta, not the CAS. What is made from one (an edit, a copy
+// into another stack, a yak) stays concealed the same way.
+function appendContent(topic, meta, body, concealed) {
+  if (!concealed) return append(topic, meta, body);
+  const key = String(body || "").startsWith("data:image/") ? "image" : "text";
+  return append(topic, { ...meta, concealed: true, [key]: body ?? "" }, "", "ephemeral");
+}
+function inlineBody(meta) {
+  return meta.concealed ? (meta.text ?? meta.image ?? "") : null;
 }
 function remember(frame, body) {
   if (frame && frame.hash) bodies[frame.hash] = body ?? "";
@@ -412,6 +423,7 @@ function stackAdd(frame) {
   const meta = frame.meta || {};
   model.stacks.push({
     id: frame.id,
+    ephemeral: frame.ttl === "ephemeral",
     name: meta.name ?? null,
     sort: meta.sort || "auto",
     layout: meta.layout || "flow",
@@ -446,6 +458,8 @@ function clipAdd(frame) {
     id: frame.id,
     kind: meta.kind || "content",
     hash: frame.hash || null,
+    concealed: !!meta.concealed,
+    inline: inlineBody(meta),
     mime_type: meta.mime_type || "text/plain",
     content_type: meta.content_type || "Text",
     position: meta.position ?? null,
@@ -461,6 +475,8 @@ function clipUpdate(frame) {
     const clip = stack.clips.find((c) => c.id === id);
     if (!clip) continue;
     clip.hash = frame.hash || null;
+    clip.concealed = !!frame.meta.concealed;
+    clip.inline = inlineBody(frame.meta);
     clip.lastTouched = frame.id;
     clip.touched = (clip.touched || []).concat(frame.id);
     stack.lastTouched = frame.id;
@@ -581,7 +597,8 @@ function syncFlat() {
         id: clip.id,
         stackId: stack.id,
         type: clip.content_type || "Text",
-        body: clip.hash ? (bodies[clip.hash] ?? "") : "",
+        body: clip.inline != null ? clip.inline : clip.hash ? (bodies[clip.hash] ?? "") : "",
+        concealed: !!clip.concealed,
         touched: (clip.touched || [clip.lastTouched]).map(scruTime),
         last: scruTime(clip.lastTouched),
         hash: clip.hash,
@@ -592,6 +609,46 @@ function syncFlat() {
   }
   state.clips = clips;
   state.undo = model.deleted.length > 0;
+  scheduleExpiry();
+}
+// A concealed clip disappears from the panel CONCEALED_MS after it last
+// changed, with whatever was made from it and any undo of its delete. Being
+// ephemeral, it is already gone from the store, and from the panel on reload.
+const CONCEALED_MS = 60 * 1000;
+let expiryTimer = null;
+function concealedUntil(clip) {
+  return clip && clip.concealed ? scruTime(clip.lastTouched) + CONCEALED_MS : Infinity;
+}
+function nextExpiry() {
+  let next = Infinity;
+  for (const stack of model.stacks) for (const clip of stack.clips) next = Math.min(next, concealedUntil(clip));
+  for (const entry of model.deleted) if (entry.kind === "clip") next = Math.min(next, concealedUntil(entry.snapshot.clip));
+  return next;
+}
+function scheduleExpiry() {
+  if (expiryTimer) clearTimeout(expiryTimer);
+  expiryTimer = null;
+  const next = nextExpiry();
+  if (next === Infinity) return;
+  expiryTimer = setTimeout(expireConcealed, Math.max(0, next - Date.now()) + 50);
+}
+function expireConcealed() {
+  const now = Date.now();
+  const gone = (clip) => concealedUntil(clip) <= now;
+  for (const stack of model.stacks) stack.clips = stack.clips.filter((clip) => !gone(clip));
+  model.stacks = model.stacks.filter((stack) => !(stack.ephemeral && stack.clips.length === 0));
+  model.deleted = model.deleted.filter((entry) => !(entry.kind === "clip" && gone(entry.snapshot.clip)));
+  syncFlat();
+  if (!state.stacks.some((s) => s.id === state.stackId)) {
+    state.stackId = state.stacks[0] ? state.stacks[0].id : "";
+    state.clipId = "";
+  }
+  if (state.clipId && !clipById(state.clipId)) {
+    if (state.mode === "edit" || state.mode === "markup") deactivate();
+    const left = clipsOf(state.stackId);
+    state.clipId = left[0] ? left[0].id : "";
+  }
+  render();
 }
 function allHashes() {
   const found = new Set();
@@ -630,7 +687,7 @@ async function putStack(meta) {
   apply(frame);
   return frame.id;
 }
-async function putClip(stackId, type, body, position) {
+async function putClip(stackId, type, body, position, concealed) {
   const meta = {
     stack_id: stackId,
     kind: "content",
@@ -638,7 +695,7 @@ async function putClip(stackId, type, body, position) {
     content_type: type,
   };
   if (position != null) meta.position = position;
-  const frame = await append("clip.add", meta, body);
+  const frame = await appendContent("clip.add", meta, body, concealed);
   remember(frame, body);
   apply(frame);
   return frame.id;
@@ -878,7 +935,7 @@ function actions() {
   const onClip = state.focus === "clip" && !!clip;
   const list = [
     { name: "Open link in browser", keys: ["⌘", "O"], show: onClip && clip.type === "Link", run: () => openLink(clip) },
-    { name: "Open image in Preview", keys: ["⌘", "O"], show: onClip && clip.type === "Image", run: () => openImage(clip) },
+    { name: "Open image in Preview", keys: ["⌘", "O"], show: onClip && clip.type === "Image" && !clip.concealed, run: () => openImage(clip) },
     { name: "Edit clip", keys: ["⌘", "⏎"], show: onClip && editable(clip), run: () => startEdit() },
     { name: "Mark up image", keys: ["⌘", "⏎"], show: onClip && clip.type === "Image", run: () => markupImage(clip) },
     { name: "Set clip content type", keys: ["⇧", "⌘", "U"], show: onClip, run: () => openMode("contentType") },
@@ -1379,12 +1436,12 @@ async function deleteStack(stack) {
 async function stashCopy(stackId) {
   const clip = currentClip();
   if (!clip || !stackId) return;
-  const frame = await append("clip.add", {
+  const frame = await appendContent("clip.add", {
     stack_id: stackId,
     kind: "content",
     mime_type: clip.mime || "text/plain",
     content_type: clip.type,
-  }, clip.body);
+  }, clip.body, clip.concealed);
   remember(frame, clip.body);
   apply(frame);
 }
@@ -1398,7 +1455,7 @@ async function yak(andUp) {
   const stackId = await putStack({ name: dn(), sort: "auto", layout: "flow" });
   let lastId = "";
   for (const item of moving) {
-    lastId = await putClip(stackId, item.type, item.body);
+    lastId = await putClip(stackId, item.type, item.body, null, item.concealed);
   }
   state.stackId = stackId;
   state.clipId = lastId;
@@ -1433,7 +1490,7 @@ async function commitEdit() {
   if (newIn) {
     if (body.trim()) await captureNewClip(newIn, body);
   } else if (clip && body.trim() && body !== clip.body) {
-    const frame = await append("clip.update", { id: clip.id }, body);
+    const frame = await appendContent("clip.update", { id: clip.id }, body, clip.concealed);
     remember(frame, body);
     apply(frame);
   }
@@ -1769,7 +1826,8 @@ function saveMarkup() {
     out.width = markupImg.naturalWidth;
     out.height = markupImg.naturalHeight;
     paintMarkup(out.getContext("2d"), m.shapes);
-    native({ cmd: "saveImage", id: m.clipId, image: out.toDataURL("image/png") });
+    const marked = clipById(m.clipId);
+    native({ cmd: "saveImage", id: m.clipId, image: out.toDataURL("image/png"), concealed: !!(marked && marked.concealed) });
   }
   deactivate();
 }
@@ -1807,8 +1865,9 @@ function copyClip() {
   if (!clip) return;
   // An image goes back as its PNG bytes, so it pastes, and the store sees the
   // same hash and moves the clip to the top, as it does for text.
-  if (clip.type === "Image") native({ cmd: "copy", image: clip.body });
-  else native({ cmd: "copy", text: clip.body });
+  // A concealed clip goes back marked concealed (App.swift).
+  if (clip.type === "Image") native({ cmd: "copy", image: clip.body, concealed: clip.concealed });
+  else native({ cmd: "copy", text: clip.body, concealed: clip.concealed });
 }
 function resetWindow() {
   document.documentElement.style.fontSize = "16px";
@@ -2025,7 +2084,7 @@ async function handleActionKey(event) {
   const clip = currentClip();
   const onClip = state.focus === "clip" && !!clip;
   if (onClip && clip.type === "Link" && match(event, { meta: true, key: "o" })) { event.preventDefault(); openLink(clip); return true; }
-  if (onClip && clip.type === "Image" && match(event, { meta: true, key: "o" })) { event.preventDefault(); openImage(clip); return true; }
+  if (onClip && clip.type === "Image" && !clip.concealed && match(event, { meta: true, key: "o" })) { event.preventDefault(); openImage(clip); return true; }
   if (onClip && match(event, { meta: true, shift: true, key: "u" })) { event.preventDefault(); openMode("contentType"); return true; }
   if (clip && match(event, { meta: true, code: "KeyY" })) { event.preventDefault(); await yak(false); return true; }
   if (clip && match(event, { meta: true, shift: true, code: "KeyY" })) { event.preventDefault(); await yak(true); return true; }
@@ -2044,7 +2103,8 @@ async function handleGlobal(event) {
       const text = selectedText();
       if (text) {
         event.preventDefault();
-        native({ cmd: "copy", text, hide: false });
+        const from = currentClip();
+        native({ cmd: "copy", text, hide: false, concealed: !!(from && from.concealed) });
       }
       return;
     }

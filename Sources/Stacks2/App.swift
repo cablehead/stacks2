@@ -308,6 +308,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 pasteboard.setString(body["text"] as? String ?? "", forType: .string)
             }
+            // A concealed clip goes back marked concealed, so other clipboard
+            // tools skip it too, and isn't recorded again here.
+            if body["concealed"] as? Bool == true {
+                pasteboard.setData(Data(), forType: PasteboardWatch.concealed)
+                self.pasteboard?.skip(pasteboard.changeCount)
+            }
             if (body["hide"] as? Bool) != false {
                 hidePanel()
             }
@@ -324,11 +330,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "saveImage":
             // A marked-up image from the panel's editor, saved into its clip
             // as the PNG's bytes (the page can only append text).
+            // A concealed clip's markup stays ephemeral, the image in its meta.
             if let image = body["image"] as? String, let png = Self.pngData(fromDataURL: image),
                let id = body["id"] as? String, !id.isEmpty, xs.isOpen {
-                let meta = XsJSON.object(["id": id])
+                let concealed = body["concealed"] as? Bool == true
+                let meta = concealed
+                    ? (try? JSONSerialization.data(withJSONObject: ["id": id, "concealed": true, "image": image]))
+                        .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                    : XsJSON.object(["id": id])
                 Task.detached {
-                    let json = Xs.append(topic: "clip.update", metaJSON: meta, body: png)
+                    let json = concealed
+                        ? Xs.append(topic: "clip.update", query: "ttl=ephemeral", metaJSON: meta, body: Data())
+                        : Xs.append(topic: "clip.update", metaJSON: meta, body: png)
                     if json.contains("\"error\"") { NSLog("stacks2 saveImage: \(json)") }
                 }
             }
@@ -366,7 +379,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 topic: body["topic"] as? String ?? "",
                 metaJSON: metaJSON,
                 body: body["body"] as? String ?? "",
-                hash: body["hash"] as? String ?? ""
+                hash: body["hash"] as? String ?? "",
+                query: (body["ttl"] as? String).map { "ttl=\($0)" } ?? ""
             )
             let open = xs.isOpen
             let why = xs.failureMessage()

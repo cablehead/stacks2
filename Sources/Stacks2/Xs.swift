@@ -12,7 +12,13 @@ final class XsStore: @unchecked Sendable {
 
     let storeURL: URL
 
+    /// STACKS2_STORE points a test run at another store (with STACKS2_SOCK
+    /// set to its sock, for the clipboard actor).
     init() {
+        if let path = ProcessInfo.processInfo.environment["STACKS2_STORE"], !path.isEmpty {
+            storeURL = URL(fileURLWithPath: path, isDirectory: true)
+            return
+        }
         let base = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Stacks2", isDirectory: true)
         storeURL = base.appendingPathComponent("store", isDirectory: true)
@@ -72,6 +78,8 @@ struct XsRequest: Sendable {
     var metaJSON: String
     var body: String
     var hash: String
+    /// For an append: a TTL, as `ttl=ephemeral`, or empty.
+    var query: String = ""
 }
 
 enum XsJSON {
@@ -112,7 +120,7 @@ enum Xs {
             }
             return XsJSON.object(["b64": data.base64EncodedString()])
         case "append":
-            return append(topic: req.topic, metaJSON: req.metaJSON, body: Data(req.body.utf8))
+            return append(topic: req.topic, query: req.query, metaJSON: req.metaJSON, body: Data(req.body.utf8))
         default:
             return XsJSON.object(["error": "unknown cmd"])
         }

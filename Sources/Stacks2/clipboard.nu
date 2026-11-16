@@ -195,15 +195,18 @@ def pick-stack [state: record] {
   if ((now-ms) - $ts) < 3600000 { $open.id } else { null }
 }
 
-def make-stack [name: string] {
+# An ephemeral stack (for a concealed clip, when no stack is open) is never
+# stored, so it doesn't outlive the clip as an empty stack.
+def make-stack [name: string, --ephemeral] {
   let meta = {name: $name, sort: "auto", layout: "flow"} | to json -r
   let b64 = $meta | encode base64 | str replace -a "\n" "" | str replace -a "\r" ""
+  let query = if $ephemeral { "?ttl=ephemeral" } else { "" }
   let raw = (
     "" | ^/usr/bin/curl -sS -f --max-time 5 --unix-socket (sock-path)
       -X POST
       -H $"xs-meta: ($b64)"
       --data-binary @-
-      "http://localhost/append/stack.add"
+      $"http://localhost/append/stack.add($query)"
   )
   $raw | from json | get id
 }
@@ -219,7 +222,38 @@ def tiff-to-png [bytes: binary] {
   $png
 }
 
+# A concealed copy (a password) arrives as an ephemeral pb.recv with its
+# record in meta, and becomes an ephemeral clip with its content in meta: no
+# content goes into the CAS and nothing is stored. The panel drops it after a
+# while. A TIFF is skipped, since converting it writes temp files.
+def handle-concealed [frame: record] {
+  let types = $frame.meta.record?.types? | default {}
+  let png = $types."public.png"? | default ""
+  let text64 = $types."public.utf8-plain-text"? | default ""
+  let content = if not ($png | is-empty) {
+    {mime_type: "image/png", content_type: "Image", image: $"data:image/png;base64,($png)"}
+  } else if not ($text64 | is-empty) {
+    let text = $text64 | decode base64 | decode utf-8
+    if ($text | str trim | is-empty) { null } else { {mime_type: "text/plain", content_type: "Text", text: $text} }
+  } else {
+    null
+  }
+  if $content == null { return }
+  let picked = pick-stack (fold-all)
+  let stack_id = if $picked == null { make-stack (stack-name) --ephemeral } else { $picked }
+  null | .append clip.add --ttl ephemeral --meta ({
+    stack_id: $stack_id
+    kind: "content"
+    concealed: true
+    source: $frame.id
+  } | merge $content)
+}
+
 def handle [frame: record] {
+  if ($frame.meta?.concealed? | default false) == true {
+    handle-concealed $frame
+    return
+  }
   let raw = (.cas $frame.hash | from json)
   let types = $raw.types? | default {}
   let png = $types."public.png"? | default ""
