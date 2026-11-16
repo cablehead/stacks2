@@ -122,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow?
     var webView: WKWebView?
     var hatch: Hatch?
+    var menuBar: MenuBar?
     var outsideClicks: Any?
     /// The app in front when the panel was shown.
     var previousApp: NSRunningApplication?
@@ -190,6 +191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey.register(shortcut)
 
         let store = xs
+        menuBar = MenuBar(
+            shortcut: { appDelegate.shortcut },
+            failure: { store.isOpen ? nil : store.failureMessage() },
+            show: { appDelegate.showPanel() }
+        )
         Task.detached {
             store.start()
             if store.isOpen {
