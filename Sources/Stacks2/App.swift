@@ -136,9 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(handler, forURLScheme: "stacks")
         config.userContentController.add(bridge, name: "stacks")
-        // The panel's shortcut toggles start from the saved shortcut.
+        // The panel's settings start from the saved shortcut and password apps.
         config.userContentController.addUserScript(WKUserScript(
-            source: "window.stacksShortcut = \(shortcut.json);",
+            source: "window.stacksShortcut = \(shortcut.json); window.stacksPasswordApps = \(PasswordApps.json); window.stacksPasswordAppsDefault = \(PasswordApps.defaultsJSON);",
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         ))
@@ -301,7 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "show":
             showPanel()
         case "copy":
-            let pasteboard = NSPasteboard.general
+            let pasteboard = PasteboardWatch.board
             pasteboard.clearContents()
             if let image = body["image"] as? String, let png = Self.pngData(fromDataURL: image) {
                 pasteboard.setData(png, forType: .png)
@@ -313,6 +313,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if body["concealed"] as? Bool == true {
                 pasteboard.setData(Data(), forType: PasteboardWatch.concealed)
                 self.pasteboard?.skip(pasteboard.changeCount)
+            } else {
+                self.pasteboard?.copiedBack(pasteboard.changeCount)
             }
             if (body["hide"] as? Bool) != false {
                 hidePanel()
@@ -365,6 +367,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             shortcut.command = body["command"] as? Bool ?? false
             shortcut.save()
             hotkey.register(shortcut)
+        case "passwordApps":
+            let apps = (body["apps"] as? [[String: Any]] ?? []).compactMap { app -> PasswordApp? in
+                guard let id = app["id"] as? String, let name = app["name"] as? String else { return nil }
+                return PasswordApp(id: id, name: name)
+            }
+            PasswordApps.set(apps)
         case "log", "append", "cas":
             let id = body["id"] as? String ?? ""
             var metaJSON = "{}"

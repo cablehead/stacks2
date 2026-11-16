@@ -12,8 +12,17 @@ final class PasteboardWatch {
 
     init(store: XsStore) {
         self.store = store
-        changeCount = NSPasteboard.general.changeCount
+        changeCount = Self.board.changeCount
     }
+
+    /// The clipboard. STACKS2_PASTEBOARD points a test run at a private named
+    /// pasteboard instead, so a test never touches what the person copied.
+    static let board: NSPasteboard = {
+        if let name = ProcessInfo.processInfo.environment["STACKS2_PASTEBOARD"], !name.isEmpty {
+            return NSPasteboard(name: NSPasteboard.Name(name))
+        }
+        return .general
+    }()
 
     func start() {
         guard timer == nil else { return }
@@ -44,15 +53,26 @@ final class PasteboardWatch {
         changeCount = change
     }
 
+    /// Stacks2 copying a clip back. The app in front is wherever the person
+    /// is working, so it says nothing about where the copy came from: the
+    /// password-app rule doesn't apply to it.
+    func copiedBack(_ change: Int) {
+        ownChange = change
+    }
+
+    private var ownChange: Int?
+
     private func tick() {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = Self.board
         let current = pasteboard.changeCount
         guard current != changeCount else { return }
         changeCount = current
         let types = Set((pasteboard.pasteboardItems ?? []).flatMap(\.types))
         if types.contains(Self.transient) { return }
-        let concealed = types.contains(Self.concealed)
-        guard let body = Self.record(pasteboard, change: current), store.isOpen else { return }
+        let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+        let fromPasswordApp = current != ownChange && PasswordApps.contains(source)
+        let concealed = types.contains(Self.concealed) || fromPasswordApp
+        guard let body = Self.record(pasteboard, change: current, source: source), store.isOpen else { return }
         var meta = "{}"
         var stored = body
         if concealed,
@@ -82,8 +102,7 @@ final class PasteboardWatch {
     }
 
     /// Same record `x-macos-pasteboard` writes as one JSON line.
-    private static func record(_ pasteboard: NSPasteboard, change: Int) -> String? {
-        let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+    private static func record(_ pasteboard: NSPasteboard, change: Int, source: String) -> String? {
         var types: [String: String] = [:]
         for item in pasteboard.pasteboardItems ?? [] {
             for type in item.types {

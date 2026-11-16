@@ -257,6 +257,9 @@
     padding: 0.3ch 0.8ch;
   }
   .mod.on { background-image: var(--broadcast-on); }
+  .settings-note { opacity: 0.7; font-size: 0.9em; }
+  .settings-list { display: flex; flex-direction: column; }
+  .settings-list .hoverable { justify-content: space-between; }
   .empty { opacity: 0.7; padding: 0.5ch; }
   svg { width: 1em; height: 1em; vertical-align: -0.15em; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 </style>
@@ -291,6 +294,9 @@ const state = {
   undo: false,
   error: "",
   shortcut: window.stacksShortcut || { shift: true, ctrl: true, alt: false, command: false },
+  // Copies made while one of these apps is in front are concealed (App.swift).
+  passwordApps: window.stacksPasswordApps || [],
+  passwordAppsDefault: window.stacksPasswordAppsDefault || [],
   stacks: [],
   clips: [],
 };
@@ -1035,6 +1041,10 @@ function overlay() {
     return `<div class="overlay settings-pop">
       <div>Activation Shortcut</div>
       <div class="cluster">${mod("shift", state.shortcut.shift)} ${mod("ctrl", state.shortcut.ctrl)} ${mod("alt", state.shortcut.alt)} ${mod("command", state.shortcut.command)} <span>Space</span></div>
+      <div>Password Apps</div>
+      <div class="settings-note">What you copy in these apps isn't saved. It stays in the panel for a minute.</div>
+      <div class="settings-list">${state.passwordApps.map((app) => `<span class="hoverable" data-act="password-app-remove" data-id="${esc(app.id)}" title="Remove ${esc(app.name)}"><span>${esc(app.name)}</span><span>✕</span></span>`).join("") || `<div class="empty">none</div>`}</div>
+      ${JSON.stringify(state.passwordApps) === JSON.stringify(state.passwordAppsDefault) ? "" : `<span class="hoverable" data-act="password-apps-reset">Put back the default apps</span>`}
     </div>`;
   }
   if (state.mode === "new" || state.mode === "filterType") {
@@ -2270,6 +2280,14 @@ shell.addEventListener("mousedown", (event) => {
       else if (act === "shortcut") {
         state.shortcut[id] = !state.shortcut[id];
         native({ cmd: "shortcut", ...state.shortcut });
+      }
+      else if (act === "password-app-remove") {
+        state.passwordApps = state.passwordApps.filter((app) => app.id !== id);
+        native({ cmd: "passwordApps", apps: state.passwordApps });
+      }
+      else if (act === "password-apps-reset") {
+        state.passwordApps = state.passwordAppsDefault.slice();
+        native({ cmd: "passwordApps", apps: state.passwordApps });
       }
       state.error = "";
       render();
