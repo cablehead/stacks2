@@ -62,12 +62,25 @@ final class PasteboardWatch {
 
     private var ownChange: Int?
 
+    /// A change that found the clipboard empty, and when it was first seen.
+    private var emptyChange: (change: Int, since: Date)?
+
+    /// How long an empty clipboard is given to fill. Copying is a clear and
+    /// then a write, and the write doesn't change the count again: read in
+    /// between, the copy would be lost.
+    private static let fillWait: TimeInterval = 0.5
+
     private func tick() {
         let pasteboard = Self.board
         let current = pasteboard.changeCount
         guard current != changeCount else { return }
-        changeCount = current
         let types = Set((pasteboard.pasteboardItems ?? []).flatMap(\.types))
+        if types.isEmpty {
+            if emptyChange?.change != current { emptyChange = (current, Date()) }
+            if let empty = emptyChange, Date().timeIntervalSince(empty.since) < Self.fillWait { return }
+        }
+        emptyChange = nil
+        changeCount = current
         if types.contains(Self.transient) { return }
         let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
         // Stacks2's own copy-back says nothing about where the text came
