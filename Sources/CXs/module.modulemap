@@ -1,0 +1,5 @@
+module CXs {
+    header "xs_ffi.h"
+    link "xs_ffi"
+    export *
+}

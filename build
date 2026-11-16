@@ -1,0 +1,8 @@
+#!/bin/sh
+# Builds Stacks2 with xs linked in: the xs-ffi static library first, then the
+# Swift package. ./build for a debug build, ./build release for a release one.
+set -e
+cd "$(dirname "$0")"
+config=${1:-debug}
+MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --manifest-path xs-ffi/Cargo.toml
+swift build -c "$config"

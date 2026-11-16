@@ -185,8 +185,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let store = xs
         Task.detached {
             store.start()
-            if let socket = store.socketPath(), !socket.isEmpty {
-                ClipboardActor.register(socket: socket)
+            if store.isOpen {
+                ClipboardActor.register()
             }
             await MainActor.run {
                 let watch = PasteboardWatch(store: store)
@@ -312,19 +312,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // A marked-up image from the panel's editor, saved into its clip
             // as the PNG's bytes (the page can only append text).
             if let image = body["image"] as? String, let png = Self.pngData(fromDataURL: image),
-               let id = body["id"] as? String, !id.isEmpty,
-               let socket = xs.socketPath(), !socket.isEmpty {
+               let id = body["id"] as? String, !id.isEmpty, xs.isOpen {
                 let meta = XsJSON.object(["id": id])
                 Task.detached {
-                    let json = XsHTTP.post(socket: socket, topic: "clip.update", metaJSON: meta, body: png)
+                    let json = Xs.append(topic: "clip.update", metaJSON: meta, body: png)
                     if json.contains("\"error\"") { NSLog("stacks2 saveImage: \(json)") }
                 }
             }
         case "follow":
             let after = body["after"] as? String ?? ""
-            guard let socket = xs.socketPath(), !socket.isEmpty else { return }
+            guard xs.isOpen else { return }
             if follow == nil { follow = LogFollow() }
-            follow?.start(socket: socket, after: after) { line in
+            follow?.start(after: after) { line in
                 Task { @MainActor in
                     appDelegate.deliver(line)
                 }
@@ -356,12 +355,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 body: body["body"] as? String ?? "",
                 hash: body["hash"] as? String ?? ""
             )
-            let socket = xs.socketPath() ?? ""
+            let open = xs.isOpen
             let why = xs.failureMessage()
             Task.detached {
-                let json = socket.isEmpty
-                    ? XsJSON.object(["error": why])
-                    : XsHTTP.call(socket: socket, req: req)
+                let json = open
+                    ? Xs.call(req)
+                    : XsJSON.object(["error": why])
                 await MainActor.run {
                     appDelegate.finish(id: id, json: json)
                 }
@@ -385,7 +384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 enum ClipboardActor {
-    static func register(socket: String) {
+    static func register() {
         guard
             let file = Bundle.module.url(forResource: "clipboard", withExtension: "nu"),
             let data = try? Data(contentsOf: file)
@@ -393,8 +392,7 @@ enum ClipboardActor {
             NSLog("stacks2: clipboard actor script missing")
             return
         }
-        let json = XsHTTP.post(
-            socket: socket,
+        let json = Xs.append(
             topic: "xs.actor.clipboard.create",
             query: "ttl=last:1",
             body: data

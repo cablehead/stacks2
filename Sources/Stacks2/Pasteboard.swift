@@ -37,7 +37,7 @@ final class PasteboardWatch {
         guard current != changeCount else { return }
         let body = Self.record(pasteboard, change: current)
         changeCount = pasteboard.changeCount
-        guard let body, let socket = store.socketPath(), !socket.isEmpty else { return }
+        guard let body, store.isOpen else { return }
         let req = XsRequest(
             id: "",
             cmd: "append",
@@ -47,7 +47,7 @@ final class PasteboardWatch {
             hash: ""
         )
         Task.detached {
-            let json = XsHTTP.call(socket: socket, req: req)
+            let json = Xs.call(req)
             if json.contains("\"error\"") {
                 NSLog("stacks2 pasteboard: \(json)")
             }
