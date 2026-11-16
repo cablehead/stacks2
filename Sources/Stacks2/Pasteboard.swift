@@ -70,8 +70,12 @@ final class PasteboardWatch {
         let types = Set((pasteboard.pasteboardItems ?? []).flatMap(\.types))
         if types.contains(Self.transient) { return }
         let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
-        let fromPasswordApp = current != ownChange && PasswordApps.contains(source)
-        let concealed = types.contains(Self.concealed) || fromPasswordApp
+        // Stacks2's own copy-back says nothing about where the text came
+        // from, so only the marker counts for it.
+        let own = current == ownChange
+        let fromPasswordApp = !own && PasswordApps.contains(source)
+        let shaped = !own && (pasteboard.string(forType: .string).flatMap(SecretShape.match) != nil)
+        let concealed = types.contains(Self.concealed) || fromPasswordApp || shaped
         guard let body = Self.record(pasteboard, change: current, source: source), store.isOpen else { return }
         var meta = "{}"
         var stored = body

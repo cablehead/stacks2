@@ -1045,6 +1045,7 @@ function overlay() {
       <div class="settings-note">What you copy in these apps isn't saved. It stays in the panel for a minute.</div>
       <div class="settings-list">${state.passwordApps.map((app) => `<span class="hoverable" data-act="password-app-remove" data-id="${esc(app.id)}" title="Remove ${esc(app.name)}"><span>${esc(app.name)}</span><span>✕</span></span>`).join("") || `<div class="empty">none</div>`}</div>
       ${JSON.stringify(state.passwordApps) === JSON.stringify(state.passwordAppsDefault) ? "" : `<span class="hoverable" data-act="password-apps-reset">Put back the default apps</span>`}
+      <div class="settings-note">Private keys, login tokens, card numbers and 6- or 8-digit sign-in codes aren't saved either, whatever app they're copied from.</div>
     </div>`;
   }
   if (state.mode === "new" || state.mode === "filterType") {
