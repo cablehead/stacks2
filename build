@@ -1,8 +1,25 @@
 #!/bin/sh
 # Builds Stacks2 with xs linked in: the xs-ffi static library first, then the
 # Swift package. ./build for a debug build, ./build release for a release one.
+# The version (VERSION, or from git describe) is linked into the binary, so the
+# menu shows it even when Stacks2 runs outside an .app. It's also left in
+# .build/version for ./bundle.
 set -e
 cd "$(dirname "$0")"
 config=${1:-debug}
+version=${VERSION:-$(git describe --tags --always --dirty | sed 's/^v//')}
+mkdir -p .build
+echo "$version" > .build/version
+cat > .build/Info.plist <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>co.ndyg.stacks2</string>
+  <key>CFBundleShortVersionString</key><string>$version</string>
+</dict>
+</plist>
+PLIST
 MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --manifest-path xs-ffi/Cargo.toml
-swift build -c "$config"
+rm -f ".build/$config/Stacks2" # relink, so a new version is picked up even when no source changed
+swift build -c "$config" -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$PWD/.build/Info.plist"

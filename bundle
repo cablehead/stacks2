@@ -3,15 +3,15 @@
 # Developer ID, and notarizes the disk image when a notarytool profile named
 # stacks2 is saved in the keychain (xcrun notarytool store-credentials stacks2).
 #
-#   ./bundle            version 0.1.0
-#   VERSION=0.2.0 ./bundle
+#   ./bundle            version from git describe, e.g. 0.2.0
+#   VERSION=0.3.0 ./bundle
 set -e
 cd "$(dirname "$0")"
-version=${VERSION:-0.1.0}
 identity="Developer ID Application: Andy Gayton (286QYU5E29)"
 id=co.ndyg.stacks2
 
 ./build release
+version=$(cat .build/version)
 
 rm -rf dist
 app=dist/stage/Stacks2.app
