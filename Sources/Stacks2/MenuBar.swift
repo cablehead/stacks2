@@ -7,6 +7,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let show = NSMenuItem(title: "Show Stacks2", action: #selector(showPanel), keyEquivalent: " ")
     private let problem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let login = LoginItem()
     private let shortcut: () -> Shortcut
     private let failure: () -> String?
     private let onShow: () -> Void
@@ -33,6 +34,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         let about = NSMenuItem(title: version.map { "Stacks2 \($0)" } ?? "Stacks2", action: nil, keyEquivalent: "")
         about.isEnabled = false
         menu.addItem(about)
+        menu.addItem(login.menuItem)
         menu.addItem(NSMenuItem(title: "Quit Stacks2", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         item.menu = menu
     }
