@@ -303,6 +303,9 @@ const state = {
 
 let model = { stacks: [], deleted: [] };
 let seen = new Set();
+// A copied clip that repeats one already on its stack: the earlier clip's id,
+// by the copy's frame id (placeClip), so the live view selects that clip.
+let repeatOf = new Map();
 const bodies = {};
 // The text the ocr actor (actors/ocr.nu) read in each image, by the image's
 // content hash: {text, error, frame}, frame being the hash of the ocr frame's
@@ -456,9 +459,53 @@ function stackDelete(frame) {
   model.stacks = model.stacks.filter((s) => s.id !== id);
   model.deleted.unshift({ frame_id: frame.id, kind: "stack", snapshot: { stack: clone(victim) } });
 }
+// A copy from the clipboard actor carries no stack: it is placed here, as the
+// frames are folded, from the frame's own time, so folding the same frames
+// always gives the same stacks. It goes on the unlocked stack touched most
+// recently, when that was within the hour before it. Otherwise it starts a
+// new stack, named for its time, whose id is the copy's own. On that stack, a
+// copy whose content is already there moves the earlier clip to the top
+// instead of adding a second one.
+const STACK_IDLE_MS = 60 * 60 * 1000;
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function stackName(ms) {
+  const d = new Date(ms);
+  const two = (n) => String(n).padStart(2, "0");
+  const h = d.getHours() % 12 || 12;
+  return `${DAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${two(d.getDate())} ${d.getFullYear()}, ${two(h)}:${two(d.getMinutes())} ${d.getHours() < 12 ? "AM" : "PM"}`;
+}
+function placeClip(frame) {
+  const at = scruTime(frame.id);
+  const open = model.stacks
+    .filter((s) => !s.locked && !s.ephemeral)
+    .reduce((best, s) => (!best || s.lastTouched > best.lastTouched ? s : best), null);
+  if (open && at - scruTime(open.lastTouched) < STACK_IDLE_MS) {
+    const earlier = frame.hash ? open.clips.find((c) => c.hash === frame.hash) : null;
+    if (!earlier) return open;
+    earlier.lastTouched = frame.id;
+    earlier.touched = (earlier.touched || []).concat(frame.id);
+    open.lastTouched = frame.id;
+    repeatOf.set(frame.id, earlier.id);
+    return null;
+  }
+  const stack = {
+    id: frame.id,
+    ephemeral: frame.ttl === "ephemeral",
+    name: stackName(at),
+    sort: "auto",
+    layout: "flow",
+    locked: false,
+    cross: false,
+    clips: [],
+    lastTouched: frame.id,
+  };
+  model.stacks.push(stack);
+  return stack;
+}
 function clipAdd(frame) {
   const meta = frame.meta || {};
-  const stack = model.stacks.find((s) => s.id === meta.stack_id);
+  const stack = meta.stack_id ? model.stacks.find((s) => s.id === meta.stack_id) : placeClip(frame);
   if (!stack) return;
   stack.clips.push({
     id: frame.id,
@@ -472,7 +519,10 @@ function clipAdd(frame) {
     lastTouched: frame.id,
     touched: [frame.id],
   });
-  stack.lastTouched = frame.id;
+  // An ephemeral clip (a concealed copy) is gone after a reload, so it doesn't
+  // count as the stack's activity: placeClip must see the same times live as
+  // when the frames are folded again.
+  if (frame.ttl !== "ephemeral") stack.lastTouched = frame.id;
 }
 function clipUpdate(frame) {
   const id = frame.meta && frame.meta.id;
@@ -2363,7 +2413,7 @@ async function ingest(line, hidden) {
   syncFlat();
   const meta = frame.meta || {};
   const landed = frame.topic === "clip.add" || frame.topic === "clip.update" || (frame.topic === "clip.patch" && meta.touch);
-  const clipId = frame.topic === "clip.add" ? frame.id : meta.id;
+  const clipId = frame.topic === "clip.add" ? (repeatOf.get(frame.id) || frame.id) : meta.id;
   if (hidden && landed && clipId && clipById(clipId)) selectClip(clipId);
   render();
 }
@@ -2377,8 +2427,9 @@ async function boot() {
     const frames = await xsCall({ cmd: "log" });
     model = { stacks: [], deleted: [] };
     seen = new Set();
+    repeatOf = new Map();
     for (const frame of frames) applyFrame(frame);
-    if (!frames.some((frame) => frame.topic === "stack.add")) await seed();
+    if (!frames.some((frame) => frame.topic === "stack.add" || frame.topic === "clip.add")) await seed();
     const last = await catchUp();
     await loadBodies();
     syncFlat();
