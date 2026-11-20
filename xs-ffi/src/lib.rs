@@ -11,6 +11,11 @@
 //! `xs_free_bytes`. Results are JSON shaped as the xs HTTP API shapes them,
 //! and a failure is `{"error": "..."}`.
 
+// Every pointer here comes from Stacks2's Swift side, which owns the contract
+// in the doc comment above. Marking the C functions `unsafe` would change
+// nothing for their caller, so the lint is allowed for the crate.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::path::PathBuf;
@@ -95,6 +100,8 @@ pub extern "C" fn xs_open(path: *const c_char) -> *mut c_char {
         Err(e) => return out(format!("could not start xs's Nushell engine: {e}")),
     };
 
+    // The task handle is returned on purpose, to be kept, not awaited here.
+    #[allow(clippy::async_yields_async)]
     let service = runtime.block_on(async {
         for (name, run) in [
             ("actor", tokio::spawn(xs::processor::actor::run(store.clone()))),
