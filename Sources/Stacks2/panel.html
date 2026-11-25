@@ -303,6 +303,10 @@ const state = {
 
 let model = { stacks: [], deleted: [] };
 let seen = new Set();
+// Stacks with the same name are one stack. A stack named like one already
+// folded is folded into it, and its id is recorded here, mapped to the id of
+// the stack it joined, so frames that name it land there.
+let alias = new Map();
 // A copied clip that repeats one already on its stack: the earlier clip's id,
 // by the copy's frame id (placeClip), so the live view selects that clip.
 let repeatOf = new Map();
@@ -428,8 +432,27 @@ function remember(frame, body) {
   if (frame && frame.hash) bodies[frame.hash] = body ?? "";
 }
 
+function canon(id) { return alias.get(id) || id; }
+function sameName(name, exceptId) {
+  const key = (name || "").trim().toLowerCase();
+  if (!key) return null;
+  return model.stacks.find((s) => s.id !== exceptId && (s.name || "").trim().toLowerCase() === key) || null;
+}
+// Moves a stack's clips into the stack that already has its name, and drops it.
+function foldInto(stack, into, frameId) {
+  into.clips.push(...stack.clips);
+  into.lastTouched = frameId;
+  model.stacks = model.stacks.filter((s) => s.id !== stack.id);
+  for (const [from, to] of alias) if (to === stack.id) alias.set(from, into.id);
+  alias.set(stack.id, into.id);
+}
 function stackAdd(frame) {
   const meta = frame.meta || {};
+  const same = sameName(meta.name, null);
+  if (same) {
+    alias.set(frame.id, same.id);
+    return;
+  }
   model.stacks.push({
     id: frame.id,
     ephemeral: frame.ttl === "ephemeral",
@@ -444,16 +467,20 @@ function stackAdd(frame) {
 }
 function stackUpdate(frame) {
   const meta = frame.meta || {};
-  const stack = model.stacks.find((s) => s.id === meta.id);
+  const stack = model.stacks.find((s) => s.id === canon(meta.id));
   if (!stack) return;
   const patch = { ...meta };
   delete patch.id;
   delete patch.touch;
   Object.assign(stack, patch);
   if (meta.name != null || meta.touch) stack.lastTouched = frame.id;
+  const same = meta.name != null && sameName(stack.name, stack.id);
+  if (same) foldInto(stack, same, frame.id);
 }
 function stackDelete(frame) {
   const id = frame.meta && frame.meta.id;
+  // A stack folded into another is gone already; deleting it drops nothing.
+  if (alias.has(id)) return;
   const victim = model.stacks.find((s) => s.id === id);
   if (!victim) return;
   model.stacks = model.stacks.filter((s) => s.id !== id);
@@ -505,7 +532,7 @@ function placeClip(frame) {
 }
 function clipAdd(frame) {
   const meta = frame.meta || {};
-  const stack = meta.stack_id ? model.stacks.find((s) => s.id === meta.stack_id) : placeClip(frame);
+  const stack = meta.stack_id ? model.stacks.find((s) => s.id === canon(meta.stack_id)) : placeClip(frame);
   if (!stack) return;
   stack.clips.push({
     id: frame.id,
@@ -548,7 +575,7 @@ function clipPatch(frame) {
     if (found) { owner = stack; clip = found; break; }
   }
   if (!owner || !clip) return;
-  const targetId = meta.stack_id || owner.id;
+  const targetId = meta.stack_id ? canon(meta.stack_id) : owner.id;
   const fields = { ...meta };
   delete fields.id;
   delete fields.stack_id;
@@ -591,7 +618,7 @@ function clipRestore(frame) {
   const target = frame.meta && frame.meta.target;
   const entry = model.deleted.find((d) => d.frame_id === target && d.kind === "clip");
   if (!entry) return;
-  const stack = model.stacks.find((s) => s.id === entry.snapshot.stack_id);
+  const stack = model.stacks.find((s) => s.id === canon(entry.snapshot.stack_id));
   if (!stack) return;
   stack.clips.push(clone(entry.snapshot.clip));
   model.deleted = model.deleted.filter((d) => d.frame_id !== target);
@@ -600,8 +627,11 @@ function stackRestore(frame) {
   const target = frame.meta && frame.meta.target;
   const entry = model.deleted.find((d) => d.frame_id === target && d.kind === "stack");
   if (!entry) return;
-  model.stacks.push(clone(entry.snapshot.stack));
+  const stack = clone(entry.snapshot.stack);
+  model.stacks.push(stack);
   model.deleted = model.deleted.filter((d) => d.frame_id !== target);
+  const same = sameName(stack.name, stack.id);
+  if (same) foldInto(stack, same, frame.id);
 }
 function ocrAdd(frame) {
   const meta = frame.meta || {};
@@ -1561,7 +1591,11 @@ async function commitRename() {
   const stack = currentStack();
   const input = document.getElementById("rename-input");
   const name = input ? input.value : state.rename;
-  if (stack && name.trim()) apply(await append("stack.update", { id: stack.id, name: name.trim() }, ""));
+  if (stack && name.trim()) {
+    apply(await append("stack.update", { id: stack.id, name: name.trim() }, ""));
+    // A name another stack has folds this one into it: select that stack.
+    state.stackId = canon(stack.id);
+  }
   state.mode = "main";
 }
 async function stashCreate() {
@@ -2427,6 +2461,7 @@ async function boot() {
     const frames = await xsCall({ cmd: "log" });
     model = { stacks: [], deleted: [] };
     seen = new Set();
+    alias = new Map();
     repeatOf = new Map();
     for (const frame of frames) applyFrame(frame);
     if (!frames.some((frame) => frame.topic === "stack.add" || frame.topic === "clip.add")) await seed();
